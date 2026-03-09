@@ -1,0 +1,32 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+  --font-serif: "Libre Baskerville", serif;
+}
+
+body {
+  @apply bg-[#0A0A0A] text-[#E4E3E0] antialiased;
+}
+
+.prose h1, .prose h2, .prose h3, .prose h4 {
+  @apply text-[#F27D26] font-bold uppercase tracking-widest mt-8 mb-4;
+}
+
+.prose p {
+  @apply mb-4 leading-relaxed;
+}
+
+.prose strong {
+  @apply text-[#F27D26];
+}
+
+.prose ul {
+  @apply list-disc list-inside mb-4;
+}
+
+.prose li {
+  @apply mb-2;
+}

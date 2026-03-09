@@ -1,0 +1,5 @@
+{
+  "name": "Bookreminder",
+  "description": "Sistema de gestión del conocimiento (PKM) para el análisis profundo de libros con IA, resúmenes detallados y generación de podcasts.",
+  "requestFramePermissions": []
+}
