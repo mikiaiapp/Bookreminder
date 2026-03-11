@@ -1,10 +1,28 @@
 import { GoogleGenAI, Type } from "@google/genai";
+import fs from "fs";
+import path from "path";
 
 export const analyzeBookBackend = async (content: string) => {
   console.log("[Gemini Backend] Initializing GoogleGenAI...");
-  const apiKey = process.env.GEMINI_API_KEY || "";
+  
+  let apiKey = process.env.GEMINI_API_KEY || "";
+  
+  // Try to read key from persistent file first (more secure for NAS/Docker)
+  const keyFilePath = "/app/data/gemini_key.txt";
+  try {
+    if (fs.existsSync(keyFilePath)) {
+      const fileKey = fs.readFileSync(keyFilePath, "utf8").trim();
+      if (fileKey) {
+        apiKey = fileKey;
+        console.log("[Gemini Backend] API Key loaded from /app/data/gemini_key.txt");
+      }
+    }
+  } catch (err) {
+    console.log("[Gemini Backend] Could not read key file, falling back to env var");
+  }
+
   if (!apiKey) {
-    console.error("[Gemini Backend] CRITICAL ERROR: GEMINI_API_KEY is not set or is empty!");
+    console.error("[Gemini Backend] CRITICAL ERROR: GEMINI_API_KEY is not set!");
     throw new Error("GEMINI_API_KEY is not set");
   }
   
