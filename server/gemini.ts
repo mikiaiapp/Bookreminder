@@ -28,7 +28,7 @@ export const analyzeBookBackend = async (content: string) => {
   
   const ai = new GoogleGenAI({ apiKey });
   const model = "gemini-3-flash-preview";
-  const CHUNK_SIZE = 800000; // ~200k tokens, safe for 250k TPM limit
+  const CHUNK_SIZE = 500000; // ~125k-150k tokens, well within 250k TPM limit
 
   if (content.length <= CHUNK_SIZE) {
     console.log(`[Gemini Backend] Content size (${content.length}) is within limits. Single pass analysis.`);
@@ -37,18 +37,19 @@ export const analyzeBookBackend = async (content: string) => {
 
   console.log(`[Gemini Backend] Content size (${content.length}) exceeds limits. Starting multi-part analysis...`);
   
-  // PHASE 1: Analyze first part to get metadata and initial summary
+  // PHASE 1: Analyze first part
   const part1 = content.substring(0, CHUNK_SIZE);
-  console.log("[Gemini Backend] Phase 1: Analyzing first 800k characters...");
+  console.log("[Gemini Backend] Phase 1: Analyzing first 500k characters...");
   const analysis1 = await runAnalysis(ai, model, part1, "PRIMERA PARTE");
 
-  // PHASE 2: Analyze second part with context from part 1
+  // Wait 10 seconds to let the TPM (Tokens Per Minute) quota breathe
+  console.log("[Gemini Backend] Waiting 10 seconds for quota reset...");
+  await new Promise(resolve => setTimeout(resolve, 10000));
+
+  // PHASE 2: Analyze second part (Final)
   const part2 = content.substring(CHUNK_SIZE);
   console.log(`[Gemini Backend] Phase 2: Analyzing remaining ${part2.length} characters...`);
   
-  // We wait a bit to let the TPM quota reset slightly (optional but safer)
-  // await new Promise(resolve => setTimeout(resolve, 2000));
-
   const prompt2 = `
 Actúas como el motor lógico de "Mi Biblioteca Personal NAS". Estás analizando la SEGUNDA PARTE de un libro.
 Ya has analizado la primera parte y este es el resumen de lo ocurrido hasta ahora:
