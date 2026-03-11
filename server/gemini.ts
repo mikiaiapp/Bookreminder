@@ -18,7 +18,7 @@ export const analyzeBookBackend = async (content: string) => {
 Actúas como el motor lógico de "Mi Biblioteca Personal NAS", un sistema de gestión del conocimiento (PKM). Tu misión es analizar el siguiente contenido de libro y devolver información estructurada exclusivamente en formato JSON.
 
 ### CONTENIDO DEL LIBRO:
-${content.substring(0, 3500000)}
+${content.substring(0, 800000)}
 
 ### REGLAS DE ANÁLISIS (MODO SPOILER TOTAL):
 1. FICHA TÉCNICA: Extrae el título, autor, ISBN (si lo encuentras, si no, busca el ISBN real de este libro), una sinopsis atractiva, biografía del autor, bibliografía destacada del autor y datos de publicación (año, género, editorial).
