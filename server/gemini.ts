@@ -10,7 +10,7 @@ export const analyzeBookBackend = async (content: string) => {
   }
   
   const ai = new GoogleGenAI({ apiKey });
-  const model = "gemini-3.1-pro-preview";
+  const model = "gemini-3-flash-preview";
   
   console.log(`[Gemini Backend] Preparing prompt for model: ${model}`);
   
