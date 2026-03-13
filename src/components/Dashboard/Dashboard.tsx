@@ -37,6 +37,8 @@ export default function Dashboard() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [analysisMessage, setAnalysisMessage] = useState('');
+  const [analysisLogs, setAnalysisLogs] = useState<string[]>([]);
+  const [partialBook, setPartialBook] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [activeTab, setActiveTab] = useState<'ficha' | 'resumen' | 'personajes' | 'mapa' | 'podcasts'>('ficha');
   const [showUploadModal, setShowUploadModal] = useState(false);
@@ -171,9 +173,11 @@ export default function Dashboard() {
           const analysis = await analyzeBook(
             content || "Contenido de prueba para el libro: " + file.name, 
             token || "",
-            (progress, message) => {
+            (progress, message, logs, partial) => {
               setAnalysisProgress(progress);
               setAnalysisMessage(message);
+              setAnalysisLogs(logs);
+              setPartialBook(partial);
             }
           );
           
@@ -200,6 +204,8 @@ export default function Dashboard() {
           setIsAnalyzing(false);
           setAnalysisProgress(0);
           setAnalysisMessage('');
+          setAnalysisLogs([]);
+          setPartialBook(null);
         }
       };
       reader.readAsText(file);
@@ -372,16 +378,40 @@ export default function Dashboard() {
                   <Loader2 className="w-4 h-4 animate-spin text-[#F27D26]" />
                   <span className="text-xs font-mono text-[#F27D26] uppercase">Procesando con IA...</span>
                 </div>
-                <div className="w-full bg-[#1A1A1A] h-1 rounded-full overflow-hidden">
+                <div className="w-full bg-[#1A1A1A] h-1 rounded-full overflow-hidden mb-3">
                   <motion.div 
                     className="h-full bg-[#F27D26]"
                     initial={{ width: 0 }}
                     animate={{ width: `${analysisProgress}%` }}
                   />
                 </div>
-                <div className="flex justify-between mt-1">
-                  <p className="text-[9px] font-mono text-[#F27D26] uppercase truncate max-w-[180px]">{analysisMessage}</p>
+                
+                <div className="space-y-1 mb-3 max-h-24 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-[#F27D26]/20">
+                  {analysisLogs.map((log, idx) => (
+                    <p key={idx} className="text-[9px] font-mono text-[#555] uppercase leading-tight">
+                      {idx === analysisLogs.length - 1 ? '> ' : '• '}
+                      <span className={idx === analysisLogs.length - 1 ? "text-[#F27D26]" : ""}>{log}</span>
+                    </p>
+                  ))}
+                </div>
+
+                <div className="flex justify-between items-center pt-2 border-t border-[#141414]/30">
+                  <p className="text-[9px] font-mono text-[#F27D26] uppercase font-bold">Estado: {analysisMessage}</p>
                   <p className="text-[9px] font-mono text-[#555]">{analysisProgress}%</p>
+                </div>
+              </div>
+            )}
+            
+            {isAnalyzing && partialBook && (
+              <div className="p-4 border-b border-[#141414] bg-[#F27D26]/5">
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-[#F27D26] animate-pulse" />
+                  <span className="text-[10px] font-mono text-[#F27D26] uppercase font-bold">Vista Previa Parcial</span>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-bold text-[#141414] truncate">{partialBook.titulo}</p>
+                  <p className="text-[10px] text-[#555] italic truncate">por {partialBook.autor}</p>
+                  <p className="text-[9px] text-[#888] line-clamp-2 mt-1">{partialBook.sinopsis}</p>
                 </div>
               </div>
             )}

@@ -84,6 +84,8 @@ db.exec(`
     status TEXT NOT NULL, -- 'pending', 'processing', 'completed', 'failed'
     progress INTEGER DEFAULT 0,
     message TEXT,
+    logs TEXT, -- Accumulated messages
+    partial_result TEXT, -- Incremental data
     result TEXT,
     error TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -116,6 +118,18 @@ try {
   db.prepare("SELECT message FROM analysis_jobs LIMIT 1").get();
 } catch (e) {
   db.exec("ALTER TABLE analysis_jobs ADD COLUMN message TEXT");
+}
+
+try {
+  db.prepare("SELECT logs FROM analysis_jobs LIMIT 1").get();
+} catch (e) {
+  db.exec("ALTER TABLE analysis_jobs ADD COLUMN logs TEXT");
+}
+
+try {
+  db.prepare("SELECT partial_result FROM analysis_jobs LIMIT 1").get();
+} catch (e) {
+  db.exec("ALTER TABLE analysis_jobs ADD COLUMN partial_result TEXT");
 }
 
 export default db;

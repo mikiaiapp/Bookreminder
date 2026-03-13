@@ -25,10 +25,14 @@ router.post("/analyze", authMiddleware, async (req, res) => {
     // Start analysis in background
     (async () => {
       try {
-        const analysis = await analyzeBookBackend(content, (progress, message) => {
-          db.prepare("UPDATE analysis_jobs SET progress = ?, message = ? WHERE id = ?").run(progress, message, jobId);
+        let accumulatedLogs = "";
+        const analysis = await analyzeBookBackend(content, (progress, message, partialData) => {
+          accumulatedLogs += (accumulatedLogs ? "\n" : "") + message;
+          db.prepare("UPDATE analysis_jobs SET progress = ?, message = ?, logs = ?, partial_result = ? WHERE id = ?")
+            .run(progress, message, accumulatedLogs, partialData ? JSON.stringify(partialData) : null, jobId);
         });
-        db.prepare("UPDATE analysis_jobs SET status = ?, progress = 100, message = ?, result = ? WHERE id = ?").run('completed', 'Finalizado', JSON.stringify(analysis), jobId);
+        db.prepare("UPDATE analysis_jobs SET status = ?, progress = 100, message = ?, logs = ?, result = ? WHERE id = ?")
+          .run('completed', 'Finalizado', accumulatedLogs + "\nFinalizado", JSON.stringify(analysis), jobId);
       } catch (err: any) {
         console.error(`[Job ${jobId}] Error:`, err);
         db.prepare("UPDATE analysis_jobs SET status = ?, error = ? WHERE id = ?").run('failed', err.message, jobId);
@@ -46,13 +50,21 @@ router.get("/analysis-status/:jobId", authMiddleware, (req, res) => {
   const job = db.prepare("SELECT * FROM analysis_jobs WHERE id = ?").get(req.params.jobId) as any;
   if (!job) return res.status(404).json({ error: "Job not found" });
   
+  const response: any = { 
+    status: job.status, 
+    progress: job.progress, 
+    message: job.message,
+    logs: job.logs ? job.logs.split("\n") : [],
+    partialResult: job.partial_result ? JSON.parse(job.partial_result) : null
+  };
+
   if (job.status === 'completed') {
-    res.json({ status: job.status, progress: job.progress, message: job.message, result: JSON.parse(job.result) });
+    response.result = JSON.parse(job.result);
   } else if (job.status === 'failed') {
-    res.json({ status: job.status, progress: job.progress, message: job.message, error: job.error });
-  } else {
-    res.json({ status: job.status, progress: job.progress, message: job.message });
+    response.error = job.error;
   }
+  
+  res.json(response);
 });
 
 // --- AUTHENTICATION ---

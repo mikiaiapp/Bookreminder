@@ -2,7 +2,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
 import path from "path";
 
-export const analyzeBookBackend = async (content: string, onProgress?: (progress: number, message: string) => void) => {
+export const analyzeBookBackend = async (content: string, onProgress?: (progress: number, message: string, partialData?: any) => void) => {
   console.log("[Gemini Backend] Initializing GoogleGenAI...");
   
   if (onProgress) onProgress(5, "Inicializando motor de IA...");
@@ -47,7 +47,7 @@ export const analyzeBookBackend = async (content: string, onProgress?: (progress
     datos_publicacion: { type: Type.STRING },
   });
 
-  if (onProgress) onProgress(15, "Ficha técnica extraída. Analizando capítulos...");
+  if (onProgress) onProgress(15, "Ficha técnica extraída. Analizando capítulos...", metadata);
 
   // 2. ANÁLISIS POR BLOQUES (CAPÍTULOS Y PERSONAJES)
   const CHUNK_SIZE = 1000000; // Aumentamos a 1M para reducir peticiones (Gemini 3 Flash tiene 1M+ de contexto)
@@ -87,7 +87,11 @@ export const analyzeBookBackend = async (content: string, onProgress?: (progress
 
     if (onProgress) {
       const chunkProgress = 15 + Math.floor(((i + 1) / numChunks) * 60);
-      onProgress(chunkProgress, `Analizado bloque ${i + 1} de ${numChunks}...`);
+      onProgress(chunkProgress, `Analizado bloque ${i + 1} de ${numChunks}...`, {
+        ...metadata,
+        resumen_capitulos: allChapterSummaries,
+        notas_personajes: allCharacterNotes
+      });
     }
   }
 
