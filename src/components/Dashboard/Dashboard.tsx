@@ -64,6 +64,7 @@ export default function Dashboard() {
   const [show2FA, setShow2FA] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [bookToDelete, setBookToDelete] = useState<number | null>(null);
   const stopRef = useRef(false);
 
   const mermaidRef = useRef<HTMLDivElement>(null);
@@ -394,7 +395,6 @@ export default function Dashboard() {
     }
   };
   const deleteBook = async (id: number) => {
-    if (!confirm('¿Estás seguro de que quieres eliminar este análisis?')) return;
     try {
       const res = await fetch(`/api/books/${id}`, { 
         method: 'DELETE',
@@ -404,6 +404,7 @@ export default function Dashboard() {
         setBooks(prev => prev.filter(b => b.id !== id));
         if (selectedBook?.id === id) setSelectedBook(null);
         setSuccessMsg('Libro eliminado correctamente');
+        setBookToDelete(null);
       } else {
         const data = await res.json();
         setError(data.error || 'Error al eliminar el libro');
@@ -541,7 +542,7 @@ export default function Dashboard() {
                         className="w-4 h-4 text-[#333] hover:text-red-500 transition-opacity cursor-pointer" 
                         onClick={(e) => {
                           e.stopPropagation();
-                          deleteBook(book.id);
+                          setBookToDelete(book.id);
                         }}
                       />
                     )}
@@ -1131,6 +1132,43 @@ export default function Dashboard() {
                   Enviar Invitación
                 </button>
               </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de Confirmación de Borrado */}
+      <AnimatePresence>
+        {bookToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setBookToDelete(null)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-[#0D0D0D] border border-[#1A1A1A] w-full max-w-sm rounded-2xl overflow-hidden relative z-10 p-6 text-center"
+            >
+              <div className="w-16 h-16 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="w-8 h-8 text-red-500" />
+              </div>
+              <h3 className="text-lg font-bold uppercase tracking-tight mb-2">¿Eliminar análisis?</h3>
+              <p className="text-xs text-[#8E9299] mb-6">Esta acción no se puede deshacer. Se borrarán todos los resúmenes y datos asociados.</p>
+              <div className="flex gap-3">
+                <button 
+                  onClick={() => setBookToDelete(null)}
+                  className="flex-1 bg-[#1A1A1A] hover:bg-[#222] text-white font-bold py-3 rounded-lg text-[10px] uppercase tracking-widest transition-all"
+                >
+                  Cancelar
+                </button>
+                <button 
+                  onClick={() => deleteBook(bookToDelete)}
+                  className="flex-1 bg-red-500 hover:bg-red-600 text-white font-bold py-3 rounded-lg text-[10px] uppercase tracking-widest transition-all"
+                >
+                  Eliminar
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

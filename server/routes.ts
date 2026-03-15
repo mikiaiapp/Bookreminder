@@ -412,16 +412,23 @@ router.post("/libraries/:id/books", authMiddleware, (req: any, res) => {
 router.delete("/books/:id", authMiddleware, (req: any, res) => {
   const bookId = req.params.id;
   
-  const book = db.prepare("SELECT library_id FROM books WHERE id = ?").get(bookId) as any;
-  if (!book) return res.status(404).json({ error: "Book not found" });
+  try {
+    const book = db.prepare("SELECT library_id FROM books WHERE id = ?").get(bookId) as any;
+    if (!book) return res.status(404).json({ error: "Book not found" });
 
-  const access = db.prepare("SELECT role FROM library_users WHERE library_id = ? AND user_id = ?").get(book.library_id, req.userId) as any;
-  if (!access || access.role === 'viewer') return res.status(403).json({ error: "Access denied" });
+    const access = db.prepare("SELECT role FROM library_users WHERE library_id = ? AND user_id = ?").get(book.library_id, req.userId) as any;
+    if (!access || access.role === 'viewer') return res.status(403).json({ error: "Access denied" });
 
-  // Delete related jobs first
-  db.prepare("DELETE FROM analysis_jobs WHERE book_id = ?").run(bookId);
-  db.prepare("DELETE FROM books WHERE id = ?").run(bookId);
-  res.json({ success: true });
+    // Delete related records first to avoid foreign key constraints
+    db.prepare("DELETE FROM analysis_jobs WHERE book_id = ?").run(bookId);
+    db.prepare("DELETE FROM chapters WHERE book_id = ?").run(bookId);
+    db.prepare("DELETE FROM books WHERE id = ?").run(bookId);
+    
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('Error deleting book:', err);
+    res.status(500).json({ error: "Error interno al eliminar el libro" });
+  }
 });
 
 // --- PHASED ANALYSIS ROUTES ---
