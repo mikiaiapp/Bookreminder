@@ -139,6 +139,141 @@ export const analyzeBookBackend = async (
   };
 };
 
+export const identifyBook = async (content: string) => {
+  const ai = getAI();
+  const prompt = `Identifica TÍTULO y AUTOR del siguiente libro.
+  CONTENIDO: ${content.substring(0, 50000)}`;
+  
+  return runAnalysis(ai, "gemini-3-flash-preview", prompt, "IDENTIFICACIÓN", {
+    titulo: { type: Type.STRING },
+    autor: { type: Type.STRING }
+  });
+};
+
+export const fetchBookMetadata = async (titulo: string, autor: string) => {
+  const ai = getAI();
+  const prompt = `Busca información detallada del libro "${titulo}" de ${autor}.
+  Necesito: ISBN, Sinopsis, Biografía del autor, Bibliografía destacada y Datos de publicación.
+  Usa fuentes como Amazon, Google Books, Lecturalia, etc.`;
+  
+  const response = await ai.models.generateContent({
+    model: "gemini-3-flash-preview",
+    contents: [{ parts: [{ text: prompt }] }],
+    config: {
+      tools: [{ googleSearch: {} }],
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          isbn: { type: Type.STRING },
+          sinopsis: { type: Type.STRING },
+          biografia_autor: { type: Type.STRING },
+          bibliografia_autor: { type: Type.STRING },
+          datos_publicacion: { type: Type.STRING },
+        },
+        required: ["isbn", "sinopsis", "biografia_autor", "bibliografia_autor", "datos_publicacion"]
+      }
+    }
+  });
+  
+  return JSON.parse(response.text);
+};
+
+export const analyzeChapters = async (content: string) => {
+  const ai = getAI();
+  const CHUNK_SIZE = 2000000;
+  const totalLength = content.length;
+  const numChunks = Math.ceil(totalLength / CHUNK_SIZE);
+  let allSummaries = "";
+
+  for (let i = 0; i < numChunks; i++) {
+    const chunk = content.substring(i * CHUNK_SIZE, (i + 1) * CHUNK_SIZE);
+    const prompt = `Resume detalladamente por capítulos el siguiente fragmento del libro.
+    CONTENIDO: ${chunk}`;
+    
+    const result = await runAnalysis(ai, "gemini-3-flash-preview", prompt, `CAPÍTULOS ${i+1}`, {
+      resumen: { type: Type.STRING }
+    });
+    allSummaries += (allSummaries ? "\n\n" : "") + result.resumen;
+    
+    if (i < numChunks - 1) await new Promise(r => setTimeout(r, 20000));
+  }
+  return allSummaries;
+};
+
+export const generateGeneralSummary = async (chapters: string) => {
+  const ai = getAI();
+  const prompt = `Basándote en los resúmenes de capítulos, genera un RESUMEN GENERAL riguroso del libro.
+  CAPÍTULOS: ${chapters.substring(0, 50000)}`;
+  
+  const result = await runAnalysis(ai, "gemini-3-flash-preview", prompt, "RESUMEN GENERAL", {
+    resumen: { type: Type.STRING }
+  });
+  return result.resumen;
+};
+
+export const analyzeCharactersPhased = async (chapters: string) => {
+  const ai = getAI();
+  const prompt = `Analiza los PERSONAJES y su EVOLUCIÓN basándote en los resúmenes de capítulos.
+  CAPÍTULOS: ${chapters.substring(0, 50000)}`;
+  
+  return runAnalysis(ai, "gemini-3-flash-preview", prompt, "PERSONAJES", {
+    personajes: { type: Type.STRING },
+    evolucion: { type: Type.STRING }
+  });
+};
+
+export const generateMentalMap = async (summary: string, characters: string) => {
+  const ai = getAI();
+  const prompt = `Crea un MAPA MENTAL en código MERMAID (graph TD) que conecte temas, personajes y trama.
+  RESUMEN: ${summary.substring(0, 10000)}
+  PERSONAJES: ${characters.substring(0, 10000)}`;
+  
+  const result = await runAnalysis(ai, "gemini-3-flash-preview", prompt, "MAPA MENTAL", {
+    mermaid: { type: Type.STRING }
+  });
+  return result.mermaid;
+};
+
+export const generatePodcastScripts = async (summary: string, characters: string) => {
+  const ai = getAI();
+  const prompt = `Genera dos guiones de PODCAST:
+  1. Un monólogo explicando el libro.
+  2. Un diálogo entre dos personajes comentando la historia.
+  RESUMEN: ${summary.substring(0, 10000)}
+  PERSONAJES: ${characters.substring(0, 10000)}`;
+  
+  return runAnalysis(ai, "gemini-3-flash-preview", prompt, "PODCAST", {
+    libro: { type: Type.STRING },
+    personajes: { type: Type.STRING }
+  });
+};
+
+export const generateExtraInfo = async (summary: string) => {
+  const ai = getAI();
+  const prompt = `Genera información extra para el recuerdo emocional del libro:
+  1. Sentimiento clave: ¿Qué sensación deja el libro al terminarlo?
+  2. Citas clave: 3 frases memorables que capturen la esencia.
+  RESUMEN: ${summary.substring(0, 10000)}`;
+  
+  return runAnalysis(ai, "gemini-3-flash-preview", prompt, "EXTRA", {
+    sentimiento: { type: Type.STRING },
+    citas: { type: Type.STRING }
+  });
+};
+
+function getAI() {
+  let apiKey = process.env.GEMINI_API_KEY || "";
+  const keyFilePath = "/app/data/gemini_key.txt";
+  try {
+    if (fs.existsSync(keyFilePath)) {
+      apiKey = fs.readFileSync(keyFilePath, "utf8").trim();
+    }
+  } catch (err) {}
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+  return new GoogleGenAI({ apiKey });
+}
+
 async function runAnalysis(ai: any, model: string, promptText: string, phaseName: string, schemaProperties: any) {
   const prompt = `
 Actúas como el motor lógico de "Mi Biblioteca Personal NAS". Responde exclusivamente en JSON.

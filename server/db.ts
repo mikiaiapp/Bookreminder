@@ -57,6 +57,9 @@ db.exec(`
     mermaid_code TEXT,
     guion_podcast_personajes TEXT,
     guion_podcast_libro TEXT,
+    sentimiento_clave TEXT,
+    citas_clave TEXT,
+    phase INTEGER DEFAULT 0, -- 0: Identificado, 1: Ficha, 2: Capítulos, 3: Resumen, 4: Personajes, 5: Mapa, 6: Podcast
     status TEXT DEFAULT 'completed', -- 'completed', 'partial', 'processing'
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (library_id) REFERENCES libraries(id)
@@ -107,14 +110,19 @@ try {
 // Migrations for new book fields
 const newColumns = [
   'isbn', 'sinopsis', 'biografia_autor', 'bibliografia_autor', 
-  'datos_publicacion', 'resumen_general', 'resumen_detallado_capitulos'
+  'datos_publicacion', 'resumen_general', 'resumen_detallado_capitulos',
+  'sentimiento_clave', 'citas_clave', 'phase'
 ];
 
 for (const col of newColumns) {
   try {
     db.prepare(`SELECT ${col} FROM books LIMIT 1`).get();
   } catch (e) {
-    db.exec(`ALTER TABLE books ADD COLUMN ${col} TEXT`);
+    if (col === 'phase') {
+      db.exec(`ALTER TABLE books ADD COLUMN ${col} INTEGER DEFAULT 0`);
+    } else {
+      db.exec(`ALTER TABLE books ADD COLUMN ${col} TEXT`);
+    }
   }
 }
 

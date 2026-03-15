@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Book, Upload, Search, Trash2, Brain, Mic2, FileText, Network,
-  Loader2, Plus, X, History, LogOut, ShieldAlert, Users, Library, RefreshCw
+  Loader2, Plus, X, History, LogOut, ShieldAlert, Users, Library, RefreshCw,
+  BookOpen, Heart, CheckCircle2, Lock
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { analyzeBook, BookAnalysis } from '../../services/geminiService';
@@ -20,6 +21,9 @@ interface SavedBook extends BookAnalysis {
   id: number;
   created_at: string;
   status?: 'processing' | 'partial' | 'completed';
+  phase: number;
+  sentimiento_clave?: string;
+  citas_clave?: string;
 }
 
 interface Library {
@@ -36,12 +40,13 @@ export default function Dashboard() {
   const [selectedBook, setSelectedBook] = useState<SavedBook | null>(null);
   
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isPhaseLoading, setIsPhaseLoading] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [analysisMessage, setAnalysisMessage] = useState('');
   const [analysisLogs, setAnalysisLogs] = useState<string[]>([]);
   const [partialBook, setPartialBook] = useState<any>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeTab, setActiveTab] = useState<'ficha' | 'resumen' | 'personajes' | 'mapa' | 'podcasts'>('ficha');
+  const [activeTab, setActiveTab] = useState<'ficha' | 'resumen' | 'personajes' | 'mapa' | 'podcasts' | 'esencia'>('ficha');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showNewLibModal, setShowNewLibModal] = useState(false);
@@ -163,6 +168,7 @@ export default function Dashboard() {
     if (!file || !selectedLibrary) return;
 
     setIsAnalyzing(true);
+    setAnalysisMessage("Leyendo archivo...");
     setError(null);
     setShowUploadModal(false);
 
@@ -171,134 +177,134 @@ export default function Dashboard() {
       reader.onload = async (event) => {
         const content = event.target?.result as string;
         try {
-          await analyzeBook(
-            content || "Contenido de prueba para el libro: " + file.name, 
-            token || "",
-            selectedLibrary.id,
-            (progress, message, logs, partial) => {
-              setAnalysisProgress(progress);
-              setAnalysisMessage(message);
-              setAnalysisLogs(logs);
-              setPartialBook(partial);
-              
-              // Update books list and selectedBook with partial data
-              if (partial && partial.metadata) {
-                const updatedBook = {
-                  id: partial.bookId,
-                  titulo: partial.metadata.titulo,
-                  autor: partial.metadata.autor,
-                  isbn: partial.metadata.isbn,
-                  sinopsis: partial.metadata.sinopsis,
-                  biografia_autor: partial.metadata.biografia_autor,
-                  bibliografia_autor: partial.metadata.bibliografia_autor,
-                  datos_publicacion: partial.metadata.datos_publicacion,
-                  resumen_capitulos: partial.resumen_capitulos || "",
-                  resumen_detallado_capitulos: partial.resumen_capitulos || "",
-                  analisis_personajes: partial.notas_personajes || "",
-                  status: 'processing',
-                  created_at: new Date().toISOString()
-                } as any;
+          // 1. Crear registro inicial
+          const res = await fetch(`/api/libraries/${selectedLibrary.id}/books`, {
+            method: 'POST',
+            headers: { 
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${token}` 
+            },
+            body: JSON.stringify({ titulo: 'Identificando...', autor: '...', status: 'processing' })
+          });
+          const { id: bookId } = await res.json();
 
-                setBooks(prev => prev.map(b => b.id === partial.bookId ? { ...b, ...updatedBook } : b));
-                
-                if (selectedBook?.id === partial.bookId || (!selectedBook && progress > 10)) {
-                  setSelectedBook(prev => prev?.id === partial.bookId ? { ...prev, ...updatedBook } : updatedBook);
-                }
-              }
-            }
-          );
+          // Guardar el contenido en un trabajo de análisis para poder reanudar fases
+          await fetch(`/api/analyze`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ content, libraryId: selectedLibrary.id, bookId })
+          });
+
+          // 2. Fase 0: Identificar
+          setAnalysisMessage("Identificando título y autor...");
+          const idRes = await fetch(`/api/books/${bookId}/identify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ content })
+          });
+          const info = await idRes.json();
           
-          fetchBooks(selectedLibrary.id);
-          setSuccessMsg('Análisis completado con éxito');
+          // 3. Fase 1: Metadatos (Google Search)
+          setAnalysisMessage("Buscando ficha técnica en la web...");
+          await fetch(`/api/books/${bookId}/metadata`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          
+          await fetchBooks(selectedLibrary.id);
+          const updatedBooks = await (await fetch(`/api/libraries/${selectedLibrary.id}/books`, {
+            headers: { Authorization: `Bearer ${token}` }
+          })).json();
+          const newBook = updatedBooks.find((b: any) => b.id === bookId);
+          if (newBook) setSelectedBook(newBook);
+          
+          setSuccessMsg('Libro identificado. Ahora puedes proceder con el resumen por capítulos.');
         } catch (err: any) {
-          setError(err.message || "Error analizando el libro. Por favor, inténtalo de nuevo.");
+          setError(err.message || "Error analizando el libro.");
           console.error(err);
         } finally {
           setIsAnalyzing(false);
-          setAnalysisProgress(0);
           setAnalysisMessage('');
-          setAnalysisLogs([]);
-          setPartialBook(null);
         }
       };
       reader.readAsText(file);
     } catch (err) {
+      setError('Error al leer el archivo');
       setIsAnalyzing(false);
-      setError("Error al leer el archivo.");
     }
   };
 
-  const resumeAnalysis = async (book: any) => {
-    if (!selectedLibrary) return;
-    setIsAnalyzing(true);
-    setAnalysisProgress(0);
-    setAnalysisMessage('Reanudando análisis...');
-    
+  const runPhase = async (bookId: number, phase: number) => {
+    if (!selectedBook) return;
+    setIsPhaseLoading(true);
+    setError(null);
+
+    const phaseMessages = [
+      "Identificando...",
+      "Buscando metadatos...",
+      "Analizando capítulos (esto puede tardar)...",
+      "Generando resumen general...",
+      "Analizando personajes...",
+      "Creando mapa mental...",
+      "Generando guiones de podcast...",
+      "Capturando esencia emocional..."
+    ];
+
+    setAnalysisMessage(phaseMessages[phase] || "Procesando...");
+
     try {
-      // Find the job for this book
-      const res = await fetch(`/api/books/${book.id}/job`, {
+      // Obtener contenido del libro desde el trabajo de análisis
+      const jobRes = await fetch(`/api/books/${bookId}/job`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      if (!res.ok) throw new Error("No se encontró el trabajo de análisis");
-      const { jobId, content } = await res.json();
+      if (!jobRes.ok) throw new Error("No se encontró el contenido del libro para este análisis.");
+      const { content } = await jobRes.json();
 
-      await analyzeBook(
-        content,
-        token || "",
-        selectedLibrary.id,
-        (progress, message, logs, partial) => {
-          setAnalysisProgress(progress);
-          setAnalysisMessage(message);
-          setAnalysisLogs(logs);
-          setPartialBook(partial);
+      const endpoints = [
+        'identify', 'metadata', 'chapters', 'summary', 'characters', 'map', 'podcast', 'extra'
+      ];
 
-          // Update books list and selectedBook with partial data
-          if (partial && partial.metadata) {
-            const updatedBook = {
-              id: partial.bookId,
-              titulo: partial.metadata.titulo,
-              autor: partial.metadata.autor,
-              isbn: partial.metadata.isbn,
-              sinopsis: partial.metadata.sinopsis,
-              biografia_autor: partial.metadata.biografia_autor,
-              bibliografia_autor: partial.metadata.bibliografia_autor,
-              datos_publicacion: partial.metadata.datos_publicacion,
-              resumen_capitulos: partial.resumen_capitulos || "",
-              resumen_detallado_capitulos: partial.resumen_capitulos || "",
-              analisis_personajes: partial.notas_personajes || "",
-              status: 'processing',
-              created_at: book.created_at // Keep original date
-            } as any;
+      const res = await fetch(`/api/books/${bookId}/${endpoints[phase]}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content })
+      });
 
-            setBooks(prev => prev.map(b => b.id === partial.bookId ? { ...b, ...updatedBook } : b));
-            
-            if (selectedBook?.id === partial.bookId) {
-              setSelectedBook(prev => prev?.id === partial.bookId ? { ...prev, ...updatedBook } : updatedBook);
-            }
-          }
-        }
-      );
-      fetchBooks(selectedLibrary.id);
-      setSuccessMsg('Análisis reanudado y completado con éxito');
+      if (!res.ok) throw new Error("Error en la fase de análisis");
+
+      await fetchBooks(selectedLibrary?.id || 0);
+      const updatedBooks = await (await fetch(`/api/libraries/${selectedLibrary?.id}/books`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })).json();
+      const updatedBook = updatedBooks.find((b: any) => b.id === bookId);
+      if (updatedBook) setSelectedBook(updatedBook);
+
+      setSuccessMsg('Fase completada con éxito');
     } catch (err: any) {
-      setError(err.message || "Error al reanudar el análisis");
+      setError(err.message || "Error en el análisis");
     } finally {
-      setIsAnalyzing(false);
-      setAnalysisProgress(0);
+      setIsPhaseLoading(false);
       setAnalysisMessage('');
     }
   };
   const deleteBook = async (id: number) => {
     if (!confirm('¿Estás seguro de que quieres eliminar este análisis?')) return;
     try {
-      await fetch(`/api/books/${id}`, { 
+      const res = await fetch(`/api/books/${id}`, { 
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` }
       });
-      setBooks(books.filter(b => b.id !== id));
-      if (selectedBook?.id === id) setSelectedBook(null);
+      if (res.ok) {
+        setBooks(prev => prev.filter(b => b.id !== id));
+        if (selectedBook?.id === id) setSelectedBook(null);
+        setSuccessMsg('Libro eliminado correctamente');
+      } else {
+        const data = await res.json();
+        setError(data.error || 'Error al eliminar el libro');
+      }
     } catch (err) {
       console.error('Error deleting book:', err);
+      setError('Error de conexión al eliminar el libro');
     }
   };
 
@@ -423,15 +429,7 @@ export default function Dashboard() {
                     {book.titulo}
                   </h3>
                   <div className="flex items-center gap-2 absolute right-4 top-4">
-                    {book.status === 'partial' && selectedLibrary?.role !== 'viewer' && (
-                      <RefreshCw 
-                        className="w-4 h-4 text-[#F27D26] hover:text-[#FF8C37] transition-colors cursor-pointer" 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          resumeAnalysis(book);
-                        }}
-                      />
-                    )}
+                    <span className="text-[8px] font-mono text-[#F27D26] bg-[#F27D26]/10 px-1 rounded">F{book.phase}</span>
                     {selectedLibrary?.role !== 'viewer' && (
                       <Trash2 
                         className="w-4 h-4 text-[#333] hover:text-red-500 transition-opacity cursor-pointer" 
@@ -535,6 +533,68 @@ export default function Dashboard() {
                   </div>
                 ) : (
                   <>
+                    {/* Phased Analysis Controls */}
+                    <div className="mb-8 p-6 bg-[#141414] border border-[#222] rounded-2xl">
+                      <div className="flex items-center justify-between mb-6">
+                        <div>
+                          <h3 className="text-xs font-mono text-[#F27D26] uppercase tracking-widest mb-1">Progreso del Análisis por Fases</h3>
+                          <p className="text-[10px] text-[#8E9299] uppercase">Completa cada etapa para desbloquear la siguiente</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-mono text-[#8E9299]">FASE {selectedBook.phase}/7</span>
+                          <div className="w-32 h-1 bg-[#222] rounded-full overflow-hidden">
+                            <div 
+                              className="h-full bg-[#F27D26] transition-all duration-500" 
+                              style={{ width: `${(selectedBook.phase / 7) * 100}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        {[
+                          { id: 2, label: 'Analizar Capítulos', icon: FileText, desc: 'Resumen uno a uno' },
+                          { id: 3, label: 'Resumen General', icon: BookOpen, desc: 'Visión global' },
+                          { id: 4, label: 'Personajes', icon: Users, desc: 'Evolución y psicología' },
+                          { id: 5, label: 'Mapa Mental', icon: Network, desc: 'Estructura visual' },
+                          { id: 6, label: 'Podcast Scripts', icon: Mic2, desc: 'Explicación y diálogo' },
+                          { id: 7, label: 'Esencia Emocional', icon: Heart, desc: 'Sentimiento y citas' },
+                        ].map((p) => {
+                          const isCompleted = selectedBook.phase >= p.id;
+                          const isAvailable = selectedBook.phase === p.id - 1;
+                          const isLocked = selectedBook.phase < p.id - 1;
+
+                          return (
+                            <button
+                              key={p.id}
+                              disabled={!isAvailable || isPhaseLoading}
+                              onClick={() => runPhase(selectedBook.id, p.id)}
+                              className={cn(
+                                "flex flex-col items-start p-4 rounded-xl border transition-all text-left group relative overflow-hidden",
+                                isCompleted 
+                                  ? "bg-[#F27D26]/10 border-[#F27D26]/30 text-[#F27D26]" 
+                                  : isAvailable
+                                    ? "bg-[#1A1A1A] border-[#333] text-[#E4E3E0] hover:border-[#F27D26]/50"
+                                    : "bg-[#0D0D0D] border-[#141414] text-[#444] cursor-not-allowed"
+                              )}
+                            >
+                              <div className="flex items-center justify-between w-full mb-2">
+                                <p.icon className={cn("w-5 h-5", isAvailable ? "text-[#F27D26]" : "")} />
+                                {isCompleted && <CheckCircle2 className="w-4 h-4" />}
+                                {isLocked && <Lock className="w-3 h-3 opacity-30" />}
+                              </div>
+                              <span className="text-[11px] font-bold uppercase tracking-tight mb-1">{p.label}</span>
+                              <span className="text-[9px] opacity-60 leading-tight">{p.desc}</span>
+                              
+                              {isAvailable && isPhaseLoading && analysisMessage.includes(p.label.split(' ')[0]) && (
+                                <div className="absolute bottom-0 left-0 h-0.5 bg-[#F27D26] animate-progress-indefinite w-full" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
                     {/* Book Header */}
                     <div className="mb-12 border-b border-[#141414] pb-8 relative">
                       {selectedBook.status === 'processing' && (
@@ -568,6 +628,7 @@ export default function Dashboard() {
                     { id: 'personajes', label: 'Psicología & Evolución', icon: Brain },
                     { id: 'mapa', label: 'Mapa de Ideas', icon: Network },
                     { id: 'podcasts', label: 'Guiones Podcast', icon: Mic2 },
+                    { id: 'esencia', label: 'Esencia Emocional', icon: Heart },
                   ].map((tab) => (
                     <button
                       key={tab.id}
@@ -727,6 +788,25 @@ export default function Dashboard() {
                           {selectedBook.guion_podcast_libro}
                         </div>
                       </div>
+                    </div>
+                  )}
+
+                  {activeTab === 'esencia' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <section>
+                        <h4 className="text-[10px] font-mono text-[#F27D26] uppercase tracking-[0.2em] mb-4">Sentimiento Clave</h4>
+                        <div className="bg-[#0D0D0D] border border-[#141414] p-8 rounded-xl leading-relaxed text-[#E4E3E0] font-serif text-2xl text-center italic">
+                          "{selectedBook.sentimiento_clave || 'Pendiente de análisis...'}"
+                        </div>
+                      </section>
+                      <section>
+                        <h4 className="text-[10px] font-mono text-[#F27D26] uppercase tracking-[0.2em] mb-4">Citas Memorables</h4>
+                        <div className="bg-[#0D0D0D] border border-[#141414] p-6 rounded-xl space-y-4">
+                          <div className="prose prose-invert max-w-none text-[#B0B0B0] font-serif italic">
+                            <Markdown>{selectedBook.citas_clave || 'Pendiente de análisis...'}</Markdown>
+                          </div>
+                        </div>
+                      </section>
                     </div>
                   )}
                 </div>

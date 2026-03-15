@@ -14,6 +14,9 @@ export interface BookAnalysis {
   mermaid_code: string;
   guion_podcast_personajes: string;
   guion_podcast_libro: string;
+  sentimiento_clave?: string;
+  citas_clave?: string;
+  phase?: number;
 }
 
 export const analyzeBook = async (
