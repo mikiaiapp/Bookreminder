@@ -196,9 +196,13 @@ export const fetchBookMetadata = async (titulo: string, autor: string) => {
 
 export const detectChapters = async (content: string) => {
   const ai = getAI();
-  const prompt = `Identifica la lista de CAPÍTULOS o PARTES de este libro.
-  Devuelve una lista de títulos o números de capítulos.
-  CONTENIDO: ${content.substring(0, 100000)}`;
+  const prompt = `Analiza el contenido y extrae la lista completa y detallada de CAPÍTULOS del libro. 
+  REGLA CRÍTICA: No te limites a las "Partes" o "Libros" (ej: Parte I, Parte II). Debes entrar en cada una de esas secciones e identificar todos los CAPÍTULOS individuales que contienen.
+  Queremos la lista final de capítulos que el lector encontrará al avanzar en la lectura.
+  Si no hay títulos de capítulos, usa "Capítulo 1", "Capítulo 2", etc., basándote en los saltos de sección del texto.
+  
+  CONTENIDO (Fragmento amplio para detectar estructura): 
+  ${content.substring(0, 300000)}`; 
   
   const result = await runAnalysis(ai, "gemini-3-flash-preview", prompt, "DETECCIÓN CAPÍTULOS", {
     capitulos: { 
@@ -217,7 +221,7 @@ export const summarizeSpecificChapter = async (content: string, chapterTitle: st
   2. NOTAS DE PERSONAJES: Quién aparece, qué hace y si hay evolución.
   
   CONTENIDO DEL LIBRO:
-  ${content.substring(0, 1000000)}`; // 1M caracteres es bastante para localizar un capítulo
+  ${content.substring(0, 2000000)}`; // 2M caracteres para cubrir libros más extensos
   
   return runAnalysis(ai, "gemini-3-flash-preview", prompt, `RESUMEN ${chapterTitle}`, {
     resumen: { type: Type.STRING },

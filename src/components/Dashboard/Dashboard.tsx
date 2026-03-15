@@ -647,6 +647,7 @@ export default function Dashboard() {
 
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {[
+                          { id: 2, label: 'Detectar Capítulos', icon: List, desc: 'Identificar estructura' },
                           { id: 3, label: 'Resumen General', icon: BookOpen, desc: 'Visión global' },
                           { id: 4, label: 'Personajes', icon: Users, desc: 'Evolución y psicología' },
                           { id: 5, label: 'Mapa Mental', icon: Network, desc: 'Estructura visual' },
@@ -654,7 +655,7 @@ export default function Dashboard() {
                           { id: 7, label: 'Esencia Emocional', icon: Heart, desc: 'Sentimiento y citas' },
                         ].map((p) => {
                           const isCompleted = selectedBook.phase >= p.id;
-                          const isAvailable = selectedBook.phase === p.id - 1;
+                          const isAvailable = selectedBook.phase >= p.id - 1; // Cambiado para permitir re-ejecutar
                           const isLocked = selectedBook.phase < p.id - 1;
 
                           return (
@@ -665,7 +666,7 @@ export default function Dashboard() {
                               className={cn(
                                 "flex flex-col items-start p-4 rounded-xl border transition-all text-left group relative overflow-hidden",
                                 isCompleted 
-                                  ? "bg-[#F27D26]/10 border-[#F27D26]/30 text-[#F27D26]" 
+                                  ? "bg-[#F27D26]/10 border-[#F27D26]/30 text-[#F27D26] hover:bg-[#F27D26]/20" 
                                   : isAvailable
                                     ? "bg-[#1A1A1A] border-[#333] text-[#E4E3E0] hover:border-[#F27D26]/50"
                                     : "bg-[#0D0D0D] border-[#141414] text-[#444] cursor-not-allowed"
