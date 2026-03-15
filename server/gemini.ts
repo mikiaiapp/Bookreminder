@@ -209,6 +209,22 @@ export const detectChapters = async (content: string) => {
   return result.capitulos;
 };
 
+export const summarizeSpecificChapter = async (content: string, chapterTitle: string) => {
+  const ai = getAI();
+  // Usamos una ventana de contexto amplia para encontrar el capítulo
+  const prompt = `Busca el capítulo titulado "${chapterTitle}" en el libro y genera:
+  1. Un RESUMEN DETALLADO del capítulo (modo spoiler).
+  2. NOTAS DE PERSONAJES: Quién aparece, qué hace y si hay evolución.
+  
+  CONTENIDO DEL LIBRO:
+  ${content.substring(0, 1000000)}`; // 1M caracteres es bastante para localizar un capítulo
+  
+  return runAnalysis(ai, "gemini-3-flash-preview", prompt, `RESUMEN ${chapterTitle}`, {
+    resumen: { type: Type.STRING },
+    notas_personajes: { type: Type.STRING }
+  });
+};
+
 export const analyzeChapters = async (content: string) => {
   const ai = getAI();
   const CHUNK_SIZE = 2000000;

@@ -98,6 +98,17 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (book_id) REFERENCES books(id)
   );
+
+  CREATE TABLE IF NOT EXISTS chapters (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    book_id INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT,
+    character_notes TEXT,
+    order_index INTEGER NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (book_id) REFERENCES books(id)
+  );
 `);
 
 // Add library_id to books if it doesn't exist (migration for existing data)

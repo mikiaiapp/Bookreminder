@@ -11,6 +11,7 @@ import {
   identifyBook, 
   fetchBookMetadata, 
   detectChapters,
+  summarizeSpecificChapter,
   analyzeChapters, 
   generateGeneralSummary, 
   analyzeCharactersPhased, 
@@ -463,23 +464,52 @@ router.post("/books/:id/detect-chapters", authMiddleware, async (req: any, res) 
   const { content } = req.body;
   const bookId = req.params.id;
   try {
-    const chapters = await detectChapters(content);
+    const chapterTitles = await detectChapters(content);
+    
+    // Limpiar capítulos previos si existen
+    db.prepare("DELETE FROM chapters WHERE book_id = ?").run(bookId);
+    
+    // Insertar nuevos capítulos
+    const insert = db.prepare("INSERT INTO chapters (book_id, title, order_index) VALUES (?, ?, ?)");
+    chapterTitles.forEach((title: string, index: number) => {
+      insert.run(bookId, title, index);
+    });
+
     db.prepare("UPDATE books SET resumen_capitulos = ?, phase = 2 WHERE id = ?")
-      .run(JSON.stringify(chapters), bookId);
-    res.json({ chapters });
+      .run(JSON.stringify(chapterTitles), bookId);
+    
+    res.json({ chapters: chapterTitles });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
-router.post("/books/:id/chapters", authMiddleware, async (req: any, res) => {
-  const { content } = req.body;
+router.get("/books/:id/chapters", authMiddleware, (req: any, res) => {
   const bookId = req.params.id;
+  const chapters = db.prepare("SELECT * FROM chapters WHERE book_id = ? ORDER BY order_index ASC").all(bookId);
+  res.json(chapters);
+});
+
+router.post("/books/:id/chapters/:chapterId/summarize", authMiddleware, async (req: any, res) => {
+  const { bookId, chapterId } = req.params;
+  const { content } = req.body;
+  
   try {
-    const chaptersSummary = await analyzeChapters(content);
-    db.prepare("UPDATE books SET resumen_detallado_capitulos = ?, phase = 3 WHERE id = ?")
-      .run(chaptersSummary, bookId);
-    res.json({ chapters: chaptersSummary });
+    const chapter = db.prepare("SELECT * FROM chapters WHERE id = ?").get(chapterId) as any;
+    if (!chapter) return res.status(404).json({ error: "Capítulo no encontrado" });
+
+    const result = await summarizeSpecificChapter(content, chapter.title);
+    
+    db.prepare("UPDATE chapters SET summary = ?, character_notes = ? WHERE id = ?")
+      .run(result.resumen, result.notas_personajes, chapterId);
+    
+    // También actualizar el resumen detallado global del libro (concatenando)
+    const allChapters = db.prepare("SELECT summary FROM chapters WHERE book_id = ? AND summary IS NOT NULL ORDER BY order_index ASC").all(req.params.id) as any[];
+    const fullSummary = allChapters.map(c => c.summary).join("\n\n");
+    
+    db.prepare("UPDATE books SET resumen_detallado_capitulos = ? WHERE id = ?").run(fullSummary, req.params.id);
+
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -487,10 +517,18 @@ router.post("/books/:id/chapters", authMiddleware, async (req: any, res) => {
 
 router.post("/books/:id/summary", authMiddleware, async (req: any, res) => {
   const bookId = req.params.id;
-  const book = db.prepare("SELECT resumen_detallado_capitulos FROM books WHERE id = ?").get(bookId) as any;
   try {
-    const summary = await generateGeneralSummary(book.resumen_detallado_capitulos);
-    db.prepare("UPDATE books SET resumen_general = ?, phase = 4 WHERE id = ?")
+    const book = db.prepare("SELECT * FROM books WHERE id = ?").get(bookId) as any;
+    if (!book) return res.status(404).json({ error: "Libro no encontrado" });
+    
+    // Usar los resúmenes de capítulos si existen en la tabla chapters
+    const chapters = db.prepare("SELECT summary FROM chapters WHERE book_id = ? AND summary IS NOT NULL ORDER BY order_index ASC").all(bookId) as any[];
+    const chaptersText = chapters.length > 0 
+      ? chapters.map(c => c.summary).join("\n\n")
+      : book.resumen_detallado_capitulos || "";
+
+    const summary = await generateGeneralSummary(chaptersText);
+    db.prepare("UPDATE books SET resumen_general = ?, phase = 3 WHERE id = ?")
       .run(summary, bookId);
     res.json({ summary });
   } catch (err: any) {
@@ -500,10 +538,16 @@ router.post("/books/:id/summary", authMiddleware, async (req: any, res) => {
 
 router.post("/books/:id/characters", authMiddleware, async (req: any, res) => {
   const bookId = req.params.id;
-  const book = db.prepare("SELECT resumen_detallado_capitulos FROM books WHERE id = ?").get(bookId) as any;
   try {
-    const analysis = await analyzeCharactersPhased(book.resumen_detallado_capitulos);
-    db.prepare("UPDATE books SET analisis_personajes = ?, evolucion_protagonista = ?, phase = 5 WHERE id = ?")
+    const book = db.prepare("SELECT * FROM books WHERE id = ?").get(bookId) as any;
+    if (!book) return res.status(404).json({ error: "Libro no encontrado" });
+    
+    // Combinar resúmenes de capítulos y notas de personajes
+    const chapters = db.prepare("SELECT summary, character_notes FROM chapters WHERE book_id = ? ORDER BY order_index ASC").all(bookId) as any[];
+    const context = chapters.map(c => `RESUMEN: ${c.summary || ""}\nNOTAS PERSONAJES: ${c.character_notes || ""}`).join("\n\n");
+
+    const analysis = await analyzeCharactersPhased(context || book.resumen_detallado_capitulos || "");
+    db.prepare("UPDATE books SET analisis_personajes = ?, evolucion_protagonista = ?, phase = 4 WHERE id = ?")
       .run(analysis.personajes, analysis.evolucion, bookId);
     res.json(analysis);
   } catch (err: any) {
@@ -516,7 +560,7 @@ router.post("/books/:id/map", authMiddleware, async (req: any, res) => {
   const book = db.prepare("SELECT resumen_general, analisis_personajes FROM books WHERE id = ?").get(bookId) as any;
   try {
     const mermaid = await generateMentalMap(book.resumen_general, book.analisis_personajes);
-    db.prepare("UPDATE books SET mermaid_code = ?, phase = 6 WHERE id = ?")
+    db.prepare("UPDATE books SET mermaid_code = ?, phase = 5 WHERE id = ?")
       .run(mermaid, bookId);
     res.json({ mermaid });
   } catch (err: any) {
@@ -529,7 +573,7 @@ router.post("/books/:id/podcast", authMiddleware, async (req: any, res) => {
   const book = db.prepare("SELECT resumen_general, analisis_personajes FROM books WHERE id = ?").get(bookId) as any;
   try {
     const scripts = await generatePodcastScripts(book.resumen_general, book.analisis_personajes);
-    db.prepare("UPDATE books SET guion_podcast_personajes = ?, guion_podcast_libro = ?, phase = 7 WHERE id = ?")
+    db.prepare("UPDATE books SET guion_podcast_personajes = ?, guion_podcast_libro = ?, phase = 6 WHERE id = ?")
       .run(scripts.personajes, scripts.libro, bookId);
     res.json(scripts);
   } catch (err: any) {
@@ -542,7 +586,7 @@ router.post("/books/:id/extra", authMiddleware, async (req: any, res) => {
   const book = db.prepare("SELECT resumen_general FROM books WHERE id = ?").get(bookId) as any;
   try {
     const extra = await generateExtraInfo(book.resumen_general);
-    db.prepare("UPDATE books SET sentimiento_clave = ?, citas_clave = ?, phase = 8 WHERE id = ?")
+    db.prepare("UPDATE books SET sentimiento_clave = ?, citas_clave = ?, phase = 7 WHERE id = ?")
       .run(extra.sentimiento, extra.citas, bookId);
     res.json(extra);
   } catch (err: any) {

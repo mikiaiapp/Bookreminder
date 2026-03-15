@@ -32,12 +32,23 @@ interface Library {
   role: string;
 }
 
+interface Chapter {
+  id: number;
+  book_id: number;
+  title: string;
+  summary: string;
+  character_notes: string;
+  order_index: number;
+}
+
 export default function Dashboard() {
   const { user, token, logout } = useAuth();
   const [libraries, setLibraries] = useState<Library[]>([]);
   const [selectedLibrary, setSelectedLibrary] = useState<Library | null>(null);
   const [books, setBooks] = useState<SavedBook[]>([]);
   const [selectedBook, setSelectedBook] = useState<SavedBook | null>(null);
+  const [chapters, setChapters] = useState<Chapter[]>([]);
+  const [summarizingChapterId, setSummarizingChapterId] = useState<number | null>(null);
   
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [isPhaseLoading, setIsPhaseLoading] = useState(false);
@@ -82,6 +93,12 @@ export default function Dashboard() {
       renderMermaid();
     }
   }, [selectedBook, activeTab]);
+
+  useEffect(() => {
+    if (selectedBook) {
+      fetchChapters(selectedBook.id);
+    }
+  }, [selectedBook]);
 
   const fetchLibraries = async () => {
     try {
@@ -160,6 +177,57 @@ export default function Dashboard() {
       }
     } catch (err) {
       setError('Error al enviar invitación');
+    }
+  };
+
+  const fetchChapters = async (bookId: number) => {
+    try {
+      const res = await fetch(`/api/books/${bookId}/chapters`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setChapters(data);
+      }
+    } catch (err) {
+      console.error('Error fetching chapters:', err);
+    }
+  };
+
+  const summarizeChapter = async (chapterId: number) => {
+    if (!selectedBook) return;
+    setSummarizingChapterId(chapterId);
+    setError(null);
+    
+    try {
+      const jobRes = await fetch(`/api/books/${selectedBook.id}/job`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (!jobRes.ok) throw new Error("No se encontró el contenido del libro.");
+      const { content } = await jobRes.json();
+
+      const res = await fetch(`/api/books/${selectedBook.id}/chapters/${chapterId}/summarize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content })
+      });
+
+      if (!res.ok) throw new Error("Error al resumir el capítulo");
+
+      await fetchChapters(selectedBook.id);
+      
+      // Actualizar el libro seleccionado para reflejar el resumen detallado global
+      const updatedBooks = await (await fetch(`/api/libraries/${selectedLibrary?.id}/books`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })).json();
+      const updatedBook = updatedBooks.find((b: any) => b.id === selectedBook.id);
+      if (updatedBook) setSelectedBook(updatedBook);
+
+      setSuccessMsg('Capítulo resumido con éxito');
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSummarizingChapterId(null);
     }
   };
 
@@ -269,7 +337,6 @@ export default function Dashboard() {
       "Identificando...",
       "Buscando metadatos...",
       "Detectando capítulos...",
-      "Analizando capítulos (esto puede tardar)...",
       "Generando resumen general...",
       "Analizando personajes...",
       "Creando mapa mental...",
@@ -288,7 +355,7 @@ export default function Dashboard() {
       const { content } = await jobRes.json();
 
       const endpoints = [
-        'identify', 'metadata', 'detect-chapters', 'chapters', 'summary', 'characters', 'map', 'podcast', 'extra'
+        'identify', 'metadata', 'detect-chapters', 'summary', 'characters', 'map', 'podcast', 'extra'
       ];
 
       const res = await fetch(`/api/books/${bookId}/${endpoints[phase]}`, {
@@ -568,11 +635,11 @@ export default function Dashboard() {
                           <p className="text-[10px] text-[#8E9299] uppercase">Completa cada etapa para desbloquear la siguiente</p>
                         </div>
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-mono text-[#8E9299]">FASE {selectedBook.phase}/8</span>
+                          <span className="text-[10px] font-mono text-[#8E9299]">FASE {selectedBook.phase}/7</span>
                           <div className="w-32 h-1 bg-[#222] rounded-full overflow-hidden">
                             <div 
                               className="h-full bg-[#F27D26] transition-all duration-500" 
-                              style={{ width: `${(selectedBook.phase / 8) * 100}%` }}
+                              style={{ width: `${(selectedBook.phase / 7) * 100}%` }}
                             />
                           </div>
                         </div>
@@ -580,13 +647,11 @@ export default function Dashboard() {
 
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {[
-                          { id: 2, label: 'Detectar Capítulos', icon: List, desc: 'Identificar estructura' },
-                          { id: 3, label: 'Resumir Capítulos', icon: FileText, desc: 'Análisis detallado' },
-                          { id: 4, label: 'Resumen General', icon: BookOpen, desc: 'Visión global' },
-                          { id: 5, label: 'Personajes', icon: Users, desc: 'Evolución y psicología' },
-                          { id: 6, label: 'Mapa Mental', icon: Network, desc: 'Estructura visual' },
-                          { id: 7, label: 'Podcast Scripts', icon: Mic2, desc: 'Explicación y diálogo' },
-                          { id: 8, label: 'Esencia Emocional', icon: Heart, desc: 'Sentimiento y citas' },
+                          { id: 3, label: 'Resumen General', icon: BookOpen, desc: 'Visión global' },
+                          { id: 4, label: 'Personajes', icon: Users, desc: 'Evolución y psicología' },
+                          { id: 5, label: 'Mapa Mental', icon: Network, desc: 'Estructura visual' },
+                          { id: 6, label: 'Podcast Scripts', icon: Mic2, desc: 'Explicación y diálogo' },
+                          { id: 7, label: 'Esencia Emocional', icon: Heart, desc: 'Sentimiento y citas' },
                         ].map((p) => {
                           const isCompleted = selectedBook.phase >= p.id;
                           const isAvailable = selectedBook.phase === p.id - 1;
@@ -747,41 +812,68 @@ export default function Dashboard() {
                   {activeTab === 'capitulos' && (
                     <div className="space-y-8">
                       <section>
-                        <h4 className="text-[10px] font-mono text-[#F27D26] uppercase tracking-[0.2em] mb-4">Estructura del Libro</h4>
+                        <h4 className="text-[10px] font-mono text-[#F27D26] uppercase tracking-[0.2em] mb-4">Estructura y Resúmenes Individuales</h4>
                         <div className="bg-[#0D0D0D] border border-[#141414] p-6 rounded-xl">
-                          {selectedBook.resumen_capitulos ? (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              {(() => {
-                                try {
-                                  const caps = JSON.parse(selectedBook.resumen_capitulos);
-                                  if (Array.isArray(caps)) {
-                                    return caps.map((cap, idx) => (
-                                      <div key={idx} className="flex items-center gap-3 p-3 bg-[#141414] rounded-lg border border-[#222] group hover:border-[#F27D26]/30 transition-colors">
-                                        <span className="text-[10px] font-mono text-[#F27D26] w-6">{idx + 1}</span>
-                                        <span className="text-sm text-[#E4E3E0]">{cap}</span>
+                          {chapters.length > 0 ? (
+                            <div className="space-y-6">
+                              {chapters.map((cap, idx) => (
+                                <div key={cap.id} className="bg-[#141414] rounded-xl border border-[#222] overflow-hidden">
+                                  <div className="flex items-center justify-between p-4 bg-[#1A1A1A] border-b border-[#222]">
+                                    <div className="flex items-center gap-3">
+                                      <span className="text-[10px] font-mono text-[#F27D26] w-6">{idx + 1}</span>
+                                      <span className="text-sm font-bold text-[#E4E3E0]">{cap.title}</span>
+                                    </div>
+                                    <button
+                                      disabled={summarizingChapterId === cap.id}
+                                      onClick={() => summarizeChapter(cap.id)}
+                                      className={cn(
+                                        "flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-tight transition-all",
+                                        cap.summary 
+                                          ? "bg-[#F27D26]/10 text-[#F27D26] border border-[#F27D26]/30" 
+                                          : "bg-[#F27D26] text-black hover:bg-[#F27D26]/80"
+                                      )}
+                                    >
+                                      {summarizingChapterId === cap.id ? (
+                                        <Loader2 className="w-3 h-3 animate-spin" />
+                                      ) : cap.summary ? (
+                                        <>
+                                          <RefreshCw className="w-3 h-3" />
+                                          Actualizar Resumen
+                                        </>
+                                      ) : (
+                                        <>
+                                          <Plus className="w-3 h-3" />
+                                          Generar Resumen
+                                        </>
+                                      )}
+                                    </button>
+                                  </div>
+                                  
+                                  {cap.summary && (
+                                    <div className="p-6 leading-relaxed text-[#B0B0B0] font-serif text-lg border-b border-[#222]/50">
+                                      <Markdown>{cap.summary}</Markdown>
+                                    </div>
+                                  )}
+                                  
+                                  {cap.character_notes && (
+                                    <div className="p-4 bg-[#0D0D0D] flex items-start gap-3">
+                                      <Users className="w-4 h-4 text-[#F27D26] mt-1 shrink-0" />
+                                      <div>
+                                        <h5 className="text-[9px] font-mono text-[#F27D26] uppercase mb-1">Notas de Personajes (Guardadas)</h5>
+                                        <div className="text-[11px] text-[#8E9299]">
+                                          <Markdown>{cap.character_notes}</Markdown>
+                                        </div>
                                       </div>
-                                    ));
-                                  }
-                                  return <Markdown>{selectedBook.resumen_capitulos}</Markdown>;
-                                } catch (e) {
-                                  return <Markdown>{selectedBook.resumen_capitulos}</Markdown>;
-                                }
-                              })()}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
                             </div>
                           ) : (
                             <p className="text-[#8E9299] italic font-serif">Aún no se ha detectado la estructura de capítulos. Ejecuta la Fase 2.</p>
                           )}
                         </div>
                       </section>
-
-                      {selectedBook.resumen_detallado_capitulos && (
-                        <section>
-                          <h4 className="text-[10px] font-mono text-[#F27D26] uppercase tracking-[0.2em] mb-4">Resúmenes Individuales</h4>
-                          <div className="bg-[#0D0D0D] border border-[#141414] p-6 rounded-xl leading-relaxed text-[#B0B0B0] font-serif text-lg">
-                            <Markdown>{selectedBook.resumen_detallado_capitulos}</Markdown>
-                          </div>
-                        </section>
-                      )}
                     </div>
                   )}
 
