@@ -350,8 +350,8 @@ export default function Dashboard() {
       "Identificando...",
       "Buscando metadatos...",
       "Detectando capítulos...",
-      "Generando resumen general...",
       "Analizando personajes...",
+      "Generando resumen general...",
       "Creando mapa mental...",
       "Generando guiones de podcast...",
       "Capturando esencia emocional..."
@@ -368,7 +368,7 @@ export default function Dashboard() {
       const { content } = await jobRes.json();
 
       const endpoints = [
-        'identify', 'metadata', 'detect-chapters', 'summary', 'characters', 'map', 'podcast', 'extra'
+        'identify', 'metadata', 'detect-chapters', 'characters', 'summary', 'map', 'podcast', 'extra'
       ];
 
       const res = await fetch(`/api/books/${bookId}/${endpoints[phase]}`, {
@@ -673,8 +673,8 @@ export default function Dashboard() {
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         {[
                           { id: 2, label: 'Detectar Capítulos', icon: List, desc: 'Identificar estructura' },
-                          { id: 3, label: 'Resumen General', icon: BookOpen, desc: 'Visión global' },
-                          { id: 4, label: 'Personajes', icon: Users, desc: 'Evolución y psicología' },
+                          { id: 3, label: 'Personajes', icon: Users, desc: 'Evolución y psicología' },
+                          { id: 4, label: 'Resumen General', icon: BookOpen, desc: 'Visión global' },
                           { id: 5, label: 'Mapa Mental', icon: Network, desc: 'Estructura visual' },
                           { id: 6, label: 'Podcast Scripts', icon: Mic2, desc: 'Explicación y diálogo' },
                           { id: 7, label: 'Esencia Emocional', icon: Heart, desc: 'Sentimiento y citas' },

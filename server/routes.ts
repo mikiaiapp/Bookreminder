@@ -511,10 +511,12 @@ router.post("/books/:id/chapters/:chapterId/summarize", authMiddleware, async (r
       .run(result.resumen, result.notas_personajes, chapterId);
     
     // También actualizar el resumen detallado global del libro (concatenando)
-    const allChapters = db.prepare("SELECT summary FROM chapters WHERE book_id = ? AND summary IS NOT NULL ORDER BY order_index ASC").all(req.params.id) as any[];
+    const allChapters = db.prepare("SELECT summary, character_notes FROM chapters WHERE book_id = ? AND summary IS NOT NULL ORDER BY order_index ASC").all(req.params.id) as any[];
     const fullSummary = allChapters.map(c => c.summary).join("\n\n");
+    const allCharacterNotes = allChapters.map(c => c.character_notes).filter(n => n).join("\n\n");
     
-    db.prepare("UPDATE books SET resumen_detallado_capitulos = ? WHERE id = ?").run(fullSummary, req.params.id);
+    db.prepare("UPDATE books SET resumen_detallado_capitulos = ?, evolucion_protagonista = ? WHERE id = ?")
+      .run(fullSummary, allCharacterNotes, req.params.id);
 
     res.json(result);
   } catch (err: any) {
@@ -535,7 +537,7 @@ router.post("/books/:id/summary", authMiddleware, async (req: any, res) => {
       : book.resumen_detallado_capitulos || "";
 
     const summary = await generateGeneralSummary(chaptersText);
-    db.prepare("UPDATE books SET resumen_general = ?, phase = 3 WHERE id = ?")
+    db.prepare("UPDATE books SET resumen_general = ?, phase = 4 WHERE id = ?")
       .run(summary, bookId);
     res.json({ summary });
   } catch (err: any) {
@@ -554,7 +556,7 @@ router.post("/books/:id/characters", authMiddleware, async (req: any, res) => {
     const context = chapters.map(c => `RESUMEN: ${c.summary || ""}\nNOTAS PERSONAJES: ${c.character_notes || ""}`).join("\n\n");
 
     const analysis = await analyzeCharactersPhased(context || book.resumen_detallado_capitulos || "");
-    db.prepare("UPDATE books SET analisis_personajes = ?, evolucion_protagonista = ?, phase = 4 WHERE id = ?")
+    db.prepare("UPDATE books SET analisis_personajes = ?, evolucion_protagonista = ?, phase = 3 WHERE id = ?")
       .run(analysis.personajes, analysis.evolucion, bookId);
     res.json(analysis);
   } catch (err: any) {
