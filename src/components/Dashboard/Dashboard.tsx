@@ -64,6 +64,7 @@ export default function Dashboard() {
   const [show2FA, setShow2FA] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const stopRef = useRef(false);
 
   const mermaidRef = useRef<HTMLDivElement>(null);
 
@@ -239,6 +240,7 @@ export default function Dashboard() {
     setAnalysisMessage("Leyendo archivo...");
     setError(null);
     setShowUploadModal(false);
+    stopRef.current = false;
 
     try {
       const reader = new FileReader();
@@ -263,6 +265,8 @@ export default function Dashboard() {
             body: JSON.stringify({ content, libraryId: selectedLibrary.id, bookId })
           });
 
+          if (stopRef.current) return;
+
           // 2. Fase 0: Identificar
           setAnalysisMessage("Identificando título y autor...");
           const idRes = await fetch(`/api/books/${bookId}/identify`, {
@@ -280,6 +284,8 @@ export default function Dashboard() {
           const bookAfterId = booksAfterId.find((b: any) => b.id === bookId);
           if (bookAfterId) setSelectedBook(bookAfterId);
 
+          if (stopRef.current) return;
+
           // 3. Fase 1: Metadatos (Google Search)
           setAnalysisMessage("Buscando ficha técnica en la web...");
           const metaRes = await fetch(`/api/books/${bookId}/metadata`, {
@@ -288,6 +294,8 @@ export default function Dashboard() {
           });
           if (!metaRes.ok) throw new Error("Error buscando metadatos");
 
+          if (stopRef.current) return;
+
           // Actualizar UI tras metadatos
           await fetchBooks(selectedLibrary.id);
           const booksAfterMeta = await (await fetch(`/api/libraries/${selectedLibrary.id}/books`, {
@@ -295,6 +303,8 @@ export default function Dashboard() {
           })).json();
           const bookAfterMeta = booksAfterMeta.find((b: any) => b.id === bookId);
           if (bookAfterMeta) setSelectedBook(bookAfterMeta);
+
+          if (stopRef.current) return;
 
           // 4. Fase 2: Detectar capítulos
           setAnalysisMessage("Detectando capítulos...");
@@ -314,7 +324,9 @@ export default function Dashboard() {
           
           setSuccessMsg('Libro identificado y capítulos detectados. Ahora puedes proceder con el resumen.');
         } catch (err: any) {
-          setError(err.message || "Error analizando el libro.");
+          if (!stopRef.current) {
+            setError(err.message || "Error analizando el libro.");
+          }
           console.error(err);
         } finally {
           setIsAnalyzing(false);
@@ -584,8 +596,20 @@ export default function Dashboard() {
                 </div>
 
                 <div className="flex justify-between items-center pt-2 border-t border-[#141414]/30">
-                  <p className="text-[9px] font-mono text-[#F27D26] uppercase font-bold">Estado: {analysisMessage}</p>
-                  <p className="text-[9px] font-mono text-[#555]">{analysisProgress}%</p>
+                  <div className="flex flex-col">
+                    <p className="text-[9px] font-mono text-[#F27D26] uppercase font-bold">Estado: {analysisMessage}</p>
+                    <p className="text-[9px] font-mono text-[#555]">{analysisProgress}%</p>
+                  </div>
+                  <button 
+                    onClick={() => {
+                      stopRef.current = true;
+                      setIsAnalyzing(false);
+                      setAnalysisMessage('Análisis detenido');
+                    }}
+                    className="text-[9px] font-mono text-red-500 uppercase border border-red-500/30 px-2 py-1 rounded hover:bg-red-500 hover:text-white transition-all"
+                  >
+                    Detener
+                  </button>
                 </div>
               </div>
             )}
