@@ -312,7 +312,8 @@ export default function Dashboard() {
           }, 300000);
           if (!metaRes.ok) {
             const errorData = await metaRes.json().catch(() => ({}));
-            throw new Error(errorData.error || "Error buscando metadatos");
+            const serverError = errorData.error || `Error del servidor (${metaRes.status})`;
+            throw new Error(serverError);
           }
 
           const metaInfo = await metaRes.json();

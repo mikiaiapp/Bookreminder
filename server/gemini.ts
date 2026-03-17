@@ -157,38 +157,45 @@ export const identifyBook = async (content: string) => {
 
 export const fetchBookMetadata = async (titulo: string, autor: string) => {
   const ai = getAI();
-  const prompt = `Busca información detallada del libro "${titulo}" de ${autor}.
-  Necesito: ISBN (solo el número), Sinopsis (resumen de la trama), Biografía del autor, Bibliografía destacada y Datos de publicación (editorial, año).
-  Usa herramientas de búsqueda para obtener datos reales.`;
+  const prompt = `Busca información detallada y real del libro "${titulo}" de ${autor}.
+  Necesito obtener: ISBN, Sinopsis completa, Biografía del autor, Bibliografía destacada y Datos de publicación (editorial, año).
+  Usa Google Search para encontrar datos precisos.`;
   
   try {
+    console.log(`[Gemini] Searching metadata for: ${titulo} - ${autor}`);
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: [{ parts: [{ text: prompt }] }],
       config: {
-        tools: [{ googleSearch: {} }],
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            isbn: { type: Type.STRING },
-            sinopsis: { type: Type.STRING },
-            biografia_autor: { type: Type.STRING },
-            bibliografia_autor: { type: Type.STRING },
-            datos_publicacion: { type: Type.STRING },
-          },
-          required: ["isbn", "sinopsis", "biografia_autor", "bibliografia_autor", "datos_publicacion"]
-        }
+        tools: [{ googleSearch: {} }]
       }
     });
     
-    const text = response.text;
-    if (!text) throw new Error("No se recibió respuesta de metadatos");
-    return JSON.parse(text);
+    const searchResult = response.text;
+    if (!searchResult) throw new Error("No se obtuvo información de la búsqueda");
+
+    console.log(`[Gemini] Formatting metadata to JSON...`);
+    const formatPrompt = `Basándote en la siguiente información, genera un objeto JSON con los campos:
+    isbn (solo el número o "Desconocido"), 
+    sinopsis (resumen atractivo), 
+    biografia_autor (vida del autor), 
+    bibliografia_autor (otras obras), 
+    datos_publicacion (editorial y año).
+    
+    INFORMACIÓN:
+    ${searchResult}`;
+
+    return await runAnalysis(ai, "gemini-3-flash-preview", formatPrompt, "FORMATO METADATOS", {
+      isbn: { type: Type.STRING },
+      sinopsis: { type: Type.STRING },
+      biografia_autor: { type: Type.STRING },
+      bibliografia_autor: { type: Type.STRING },
+      datos_publicacion: { type: Type.STRING },
+    });
   } catch (err: any) {
-    console.error("[Gemini] Error fetching metadata:", err);
-    // Fallback to a simpler prompt without search if search fails
-    const fallbackPrompt = `Proporciona información general del libro "${titulo}" de ${autor} en formato JSON.`;
+    console.error("[Gemini] Error in metadata search phase:", err);
+    // Fallback to internal knowledge if search fails
+    const fallbackPrompt = `Proporciona la ficha técnica (ISBN, sinopsis, biografía, bibliografía, datos publicación) del libro "${titulo}" de ${autor} usando tu conocimiento interno.`;
     return runAnalysis(ai, "gemini-3-flash-preview", fallbackPrompt, "METADATOS FALLBACK", {
       isbn: { type: Type.STRING },
       sinopsis: { type: Type.STRING },
@@ -402,7 +409,7 @@ ${promptText}
 - Salida: JSON puro.
 `;
 
-  const MAX_RETRIES = 3;
+  const MAX_RETRIES = 5;
   let lastError: any = null;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
