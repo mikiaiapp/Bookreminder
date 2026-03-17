@@ -2,29 +2,6 @@ import { GoogleGenAI, Type } from "@google/genai";
 import fs from "fs";
 import path from "path";
 
-function getAI() {
-  let apiKey = process.env.GEMINI_API_KEY || "";
-  
-  // Try to read key from persistent file first (more secure for NAS/Docker)
-  const keyFilePath = "/app/data/gemini_key.txt";
-  try {
-    if (fs.existsSync(keyFilePath)) {
-      const fileKey = fs.readFileSync(keyFilePath, "utf8").trim();
-      if (fileKey) {
-        apiKey = fileKey;
-      }
-    }
-  } catch (err) {
-    // Ignore errors reading the file
-  }
-
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not set");
-  }
-  
-  return new GoogleGenAI({ apiKey });
-}
-
 export const analyzeBookBackend = async (
   content: string, 
   onProgress?: (progress: number, message: string, partialData?: any, lastChunk?: number) => void,
@@ -35,7 +12,28 @@ export const analyzeBookBackend = async (
   
   if (onProgress) onProgress(5, "Inicializando motor de IA...");
   
-  const ai = getAI();
+  let apiKey = process.env.GEMINI_API_KEY || "";
+  
+  // Try to read key from persistent file first (more secure for NAS/Docker)
+  const keyFilePath = "/app/data/gemini_key.txt";
+  try {
+    if (fs.existsSync(keyFilePath)) {
+      const fileKey = fs.readFileSync(keyFilePath, "utf8").trim();
+      if (fileKey) {
+        apiKey = fileKey;
+        console.log("[Gemini Backend] API Key loaded from /app/data/gemini_key.txt");
+      }
+    }
+  } catch (err) {
+    console.log("[Gemini Backend] Could not read key file, falling back to env var");
+  }
+
+  if (!apiKey) {
+    console.error("[Gemini Backend] CRITICAL ERROR: GEMINI_API_KEY is not set!");
+    throw new Error("GEMINI_API_KEY is not set");
+  }
+  
+  const ai = new GoogleGenAI({ apiKey });
   const model = "gemini-3-flash-preview";
   
   let metadata = initialState?.metadata || null;
@@ -143,11 +141,8 @@ export const analyzeBookBackend = async (
 
 export const identifyBook = async (content: string) => {
   const ai = getAI();
-  const prompt = `Analiza el siguiente fragmento de un libro y extrae el TÍTULO y el AUTOR.
-  Si no puedes encontrarlos con certeza, intenta deducirlos por el contexto o pon "Desconocido".
-  
-  CONTENIDO (Primeros 100k caracteres):
-  ${content.substring(0, 100000)}`;
+  const prompt = `Identifica TÍTULO y AUTOR del siguiente libro.
+  CONTENIDO: ${content.substring(0, 50000)}`;
   
   return runAnalysis(ai, "gemini-3-flash-preview", prompt, "IDENTIFICACIÓN", {
     titulo: { type: Type.STRING },
@@ -157,45 +152,38 @@ export const identifyBook = async (content: string) => {
 
 export const fetchBookMetadata = async (titulo: string, autor: string) => {
   const ai = getAI();
-  const prompt = `Busca información detallada y real del libro "${titulo}" de ${autor}.
-  Necesito obtener: ISBN, Sinopsis completa, Biografía del autor, Bibliografía destacada y Datos de publicación (editorial, año).
-  Usa Google Search para encontrar datos precisos.`;
+  const prompt = `Busca información detallada del libro "${titulo}" de ${autor}.
+  Necesito: ISBN (solo el número), Sinopsis (resumen de la trama), Biografía del autor, Bibliografía destacada y Datos de publicación (editorial, año).
+  Usa herramientas de búsqueda para obtener datos reales.`;
   
   try {
-    console.log(`[Gemini] Searching metadata for: ${titulo} - ${autor}`);
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: [{ parts: [{ text: prompt }] }],
       config: {
-        tools: [{ googleSearch: {} }]
+        tools: [{ googleSearch: {} }],
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            isbn: { type: Type.STRING },
+            sinopsis: { type: Type.STRING },
+            biografia_autor: { type: Type.STRING },
+            bibliografia_autor: { type: Type.STRING },
+            datos_publicacion: { type: Type.STRING },
+          },
+          required: ["isbn", "sinopsis", "biografia_autor", "bibliografia_autor", "datos_publicacion"]
+        }
       }
     });
     
-    const searchResult = response.text;
-    if (!searchResult) throw new Error("No se obtuvo información de la búsqueda");
-
-    console.log(`[Gemini] Formatting metadata to JSON...`);
-    const formatPrompt = `Basándote en la siguiente información, genera un objeto JSON con los campos:
-    isbn (solo el número o "Desconocido"), 
-    sinopsis (resumen atractivo), 
-    biografia_autor (vida del autor), 
-    bibliografia_autor (otras obras), 
-    datos_publicacion (editorial y año).
-    
-    INFORMACIÓN:
-    ${searchResult}`;
-
-    return await runAnalysis(ai, "gemini-3-flash-preview", formatPrompt, "FORMATO METADATOS", {
-      isbn: { type: Type.STRING },
-      sinopsis: { type: Type.STRING },
-      biografia_autor: { type: Type.STRING },
-      bibliografia_autor: { type: Type.STRING },
-      datos_publicacion: { type: Type.STRING },
-    });
+    const text = response.text;
+    if (!text) throw new Error("No se recibió respuesta de metadatos");
+    return JSON.parse(text);
   } catch (err: any) {
-    console.error("[Gemini] Error in metadata search phase:", err);
-    // Fallback to internal knowledge if search fails
-    const fallbackPrompt = `Proporciona la ficha técnica (ISBN, sinopsis, biografía, bibliografía, datos publicación) del libro "${titulo}" de ${autor} usando tu conocimiento interno.`;
+    console.error("[Gemini] Error fetching metadata:", err);
+    // Fallback to a simpler prompt without search if search fails
+    const fallbackPrompt = `Proporciona información general del libro "${titulo}" de ${autor} en formato JSON.`;
     return runAnalysis(ai, "gemini-3-flash-preview", fallbackPrompt, "METADATOS FALLBACK", {
       isbn: { type: Type.STRING },
       sinopsis: { type: Type.STRING },
@@ -208,106 +196,33 @@ export const fetchBookMetadata = async (titulo: string, autor: string) => {
 
 export const detectChapters = async (content: string) => {
   const ai = getAI();
-  // Tomamos una muestra más representativa del inicio para encontrar el índice
-  const head = content.substring(0, 600000);
-  const tail = content.substring(Math.max(0, content.length - 200000));
-  const targetedContent = `--- INICIO DEL LIBRO (Muestra amplia) ---\n${head}\n\n... [CONTENIDO OMITIDO] ...\n\n--- FINAL DEL LIBRO ---\n${tail}`;
-
-  const prompt = `Analiza el texto proporcionado y extrae la estructura completa de capítulos del libro.
-  
-  INSTRUCCIONES:
-  1. Busca una tabla de contenidos o índice al principio del texto.
-  2. Si no hay índice, identifica los encabezados de capítulos a lo largo del texto (ej: "Capítulo 1", "1. El Comienzo", etc.).
-  3. Identifica si el libro está dividido en PARTES, SECCIONES o LIBROS (ej: "Parte I: El Despertar", "Libro Segundo", etc.).
-  4. Si hay divisiones mayores (partes), agrupa los capítulos que pertenecen a cada una.
-  5. Si NO hay divisiones mayores, usa una cadena vacía "" para el campo "part".
-  6. Si el libro no tiene capítulos numerados o titulados, crea un único elemento con part: "" y un capítulo llamado "Contenido Principal".
-  
-  IMPORTANTE: Devuelve una lista de objetos, cada uno con un nombre de "part" y una lista de "chapters" (strings con los títulos).
+  const prompt = `Extrae la lista de TODOS los capítulos del libro.
+  IMPORTANTE: Si el libro tiene Partes (ej: Parte 1, Parte 2), NO devuelvas solo las Partes. 
+  Debes devolver los CAPÍTULOS que hay DENTRO de cada Parte.
+  Ejemplo de salida esperada: ["Parte 1 - Capítulo 1", "Parte 1 - Capítulo 2", "Parte 2 - Capítulo 1", ...]
+  Si los capítulos no tienen nombre, usa "Capítulo 1", "Capítulo 2", etc.
   
   CONTENIDO:
-  ${targetedContent}`;
+  ${content.substring(0, 400000)}`;
   
-  try {
-    const result = await runAnalysis(ai, "gemini-3-flash-preview", prompt, "DETECCIÓN ESTRUCTURA", {
-      estructura: { 
-        type: Type.ARRAY,
-        items: {
-          type: Type.OBJECT,
-          properties: {
-            part: { type: Type.STRING, description: "Nombre de la parte/sección o cadena vacía" },
-            chapters: { 
-              type: Type.ARRAY, 
-              items: { type: Type.STRING },
-              description: "Lista de títulos de capítulos encontrados"
-            }
-          },
-          required: ["part", "chapters"]
-        }
-      }
-    });
-    
-    if (!result.estructura || result.estructura.length === 0) {
-      return [{ part: "", chapters: ["Contenido Principal"] }];
+  const result = await runAnalysis(ai, "gemini-3-flash-preview", prompt, "DETECCIÓN CAPÍTULOS", {
+    capitulos: { 
+      type: Type.ARRAY,
+      items: { type: Type.STRING }
     }
-    
-    return result.estructura;
-  } catch (err) {
-    console.error("Error en detectChapters:", err);
-    return [{ part: "", chapters: ["Contenido Principal"] }];
-  }
+  });
+  return result.capitulos;
 };
 
 export const summarizeSpecificChapter = async (content: string, chapterTitle: string) => {
   const ai = getAI();
+  // Usamos una ventana de contexto amplia para encontrar el capítulo
+  const prompt = `Busca el capítulo titulado "${chapterTitle}" en el libro y genera:
+  1. Un RESUMEN DETALLADO del capítulo (modo spoiler).
+  2. NOTAS DE PERSONAJES: Quién aparece, qué hace y si hay evolución.
   
-  // Intentar encontrar la posición del capítulo para centrar el contexto
-  const lowerContent = content.toLowerCase();
-  const lowerTitle = chapterTitle.toLowerCase();
-  
-  // Buscamos la primera ocurrencia que NO sea el índice (asumiendo que el índice está al principio)
-  let index = lowerContent.indexOf(lowerTitle);
-  
-  // Si no se encuentra, intentar buscar solo el número si el título es "Capítulo X"
-  if (index === -1 && lowerTitle.includes('capítulo')) {
-    const match = lowerTitle.match(/capítulo\s+(\d+)/);
-    if (match) {
-      const num = match[1];
-      const altTitles = [`capitulo ${num}`, `cap. ${num}`, `ch. ${num}`, `chapter ${num}`, `\n${num}\n` ];
-      for (const alt of altTitles) {
-        index = lowerContent.indexOf(alt);
-        if (index !== -1) break;
-      }
-    }
-  }
-
-  // Si está muy al principio (primeros 10000 caracteres), buscamos la siguiente ocurrencia
-  // ya que la primera suele ser el índice o tabla de contenidos
-  if (index !== -1 && index < 10000) {
-    const nextIndex = lowerContent.indexOf(lowerTitle, index + lowerTitle.length);
-    if (nextIndex !== -1) index = nextIndex;
-  }
-  
-  let targetedContent = "";
-  if (index !== -1) {
-    // Tomamos un bloque de 2M caracteres desde donde empieza el capítulo
-    // para asegurar que cubrimos el capítulo entero y algo de contexto posterior
-    targetedContent = content.substring(Math.max(0, index - 2000), index + 2000000);
-  } else {
-    // Si no se encuentra por título exacto, usamos los primeros 2.5M como fallback
-    targetedContent = content.substring(0, 2500000);
-  }
-
-  const prompt = `Analiza el siguiente fragmento del libro centrándote en el capítulo titulado "${chapterTitle}".
-  
-  TAREA:
-  1. Identifica dónde comienza y termina el capítulo "${chapterTitle}" en el texto proporcionado.
-  2. Genera un RESUMEN DETALLADO de este capítulo específico (modo spoiler).
-  3. Identifica los PERSONAJES que aparecen en este capítulo, sus acciones clave y cualquier evolución relevante.
-  4. Si el capítulo no parece estar en el texto proporcionado, indica que no se encontró suficiente información pero intenta resumir lo que veas que sea relevante al título.
-  
-  FRAGMENTO DEL LIBRO:
-  ${targetedContent}`;
+  CONTENIDO DEL LIBRO:
+  ${content.substring(0, 2000000)}`; // 2M caracteres para cubrir libros más extensos
   
   return runAnalysis(ai, "gemini-3-flash-preview", prompt, `RESUMEN ${chapterTitle}`, {
     resumen: { type: Type.STRING },
@@ -398,6 +313,18 @@ export const generateExtraInfo = async (summary: string) => {
   });
 };
 
+function getAI() {
+  let apiKey = process.env.GEMINI_API_KEY || "";
+  const keyFilePath = "/app/data/gemini_key.txt";
+  try {
+    if (fs.existsSync(keyFilePath)) {
+      apiKey = fs.readFileSync(keyFilePath, "utf8").trim();
+    }
+  } catch (err) {}
+  if (!apiKey) throw new Error("GEMINI_API_KEY is not set");
+  return new GoogleGenAI({ apiKey });
+}
+
 async function runAnalysis(ai: any, model: string, promptText: string, phaseName: string, schemaProperties: any) {
   const prompt = `
 Actúas como el motor lógico de "Mi Biblioteca Personal NAS". Responde exclusivamente en JSON.
@@ -409,7 +336,7 @@ ${promptText}
 - Salida: JSON puro.
 `;
 
-  const MAX_RETRIES = 5;
+  const MAX_RETRIES = 3;
   let lastError: any = null;
 
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
@@ -429,25 +356,22 @@ ${promptText}
 
       const resultText = response.text;
       if (!resultText) throw new Error(`No response from Gemini in ${phaseName}`);
-      
-      // Limpiar posibles bloques de código markdown
-      const cleanJson = resultText.replace(/```json\n?|```/g, "").trim();
-      return JSON.parse(cleanJson);
+      return JSON.parse(resultText);
     } catch (error: any) {
       lastError = error;
       // 503: Service Unavailable (High demand)
       // 429: Quota Exceeded
-      const isRateLimit = error.status === 429 || (error.message && (error.message.includes("429") || error.message.toLowerCase().includes("quota")));
-      const isServiceUnavailable = error.status === 503 || (error.message && (error.message.includes("503") || error.message.toLowerCase().includes("overloaded")));
+      const isRetryable = error.status === 503 || error.status === 429 || 
+                          (error.message && (error.message.includes("503") || error.message.includes("429")));
       
-      if ((isRateLimit || isServiceUnavailable) && attempt < MAX_RETRIES) {
-        const delay = isRateLimit ? attempt * 60000 : attempt * 10000; // 60s para cuota, 10s para sobrecarga
+      if (isRetryable && attempt < MAX_RETRIES) {
+        const delay = attempt * 30000; // 30s, 60s...
         console.warn(`[Gemini Backend] Attempt ${attempt} failed for ${phaseName} (Status: ${error.status}). Retrying in ${delay/1000}s...`);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
       
-      if (isRateLimit && error.message.includes("Quota exceeded")) {
+      if (error.status === 429 && error.message.includes("Quota exceeded")) {
         throw new Error("Cuota diaria de Gemini agotada (Límite: 20 peticiones/día). Por favor, espera 24h o usa otra API Key.");
       }
       
