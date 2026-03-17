@@ -387,7 +387,8 @@ router.post("/libraries/:id/books", authMiddleware, (req: any, res) => {
     titulo, autor, isbn, sinopsis, biografia_autor, bibliografia_autor,
     datos_publicacion, resumen_general, resumen_detallado_capitulos,
     resumen_capitulos, analisis_personajes, 
-    evolucion_protagonista, mermaid_code, guion_podcast_personajes, guion_podcast_libro 
+    evolucion_protagonista, mermaid_code, guion_podcast_personajes, guion_podcast_libro,
+    content
   } = req.body;
 
   const stmt = db.prepare(`
@@ -400,13 +401,22 @@ router.post("/libraries/:id/books", authMiddleware, (req: any, res) => {
   `);
 
   const result = stmt.run(
-    libraryId, titulo, autor, isbn, sinopsis, biografia_autor, bibliografia_autor,
-    datos_publicacion, resumen_general, resumen_detallado_capitulos,
-    resumen_capitulos, analisis_personajes, 
-    evolucion_protagonista, mermaid_code, guion_podcast_personajes, guion_podcast_libro
+    libraryId, titulo || 'Nuevo Libro', autor || '', isbn || '', sinopsis || '', biografia_autor || '', bibliografia_autor || '',
+    datos_publicacion || '', resumen_general || '', resumen_detallado_capitulos || '',
+    resumen_capitulos || '', analisis_personajes || '', 
+    evolucion_protagonista || '', mermaid_code || '', guion_podcast_personajes || '', guion_podcast_libro || ''
   );
 
-  res.json({ id: result.lastInsertRowid });
+  const bookId = result.lastInsertRowid;
+
+  // Si se proporciona contenido, crear un trabajo de análisis para guardarlo
+  if (content) {
+    const jobId = Math.random().toString(36).substring(7);
+    db.prepare("INSERT INTO analysis_jobs (id, status, progress, content, book_id) VALUES (?, ?, ?, ?, ?)")
+      .run(jobId, 'pending', 0, content, bookId);
+  }
+
+  res.json({ id: bookId });
 });
 
 router.delete("/books/:id", authMiddleware, (req: any, res) => {
@@ -436,8 +446,11 @@ router.delete("/books/:id", authMiddleware, (req: any, res) => {
 router.post("/books/:id/identify", authMiddleware, async (req: any, res) => {
   const { content } = req.body;
   const bookId = req.params.id;
-  if (!content) {
-    return res.status(400).json({ error: "El contenido del libro es obligatorio para la identificación." });
+  
+  console.log(`[API /identify] Request for book ${bookId}. Content length: ${content?.length || 0}`);
+
+  if (!content || content.trim().length === 0) {
+    return res.status(400).json({ error: "El contenido del libro está vacío o no se ha recibido correctamente." });
   }
   try {
     const info = await identifyBook(content);
