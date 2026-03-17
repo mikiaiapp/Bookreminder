@@ -291,19 +291,16 @@ export default function Dashboard() {
           const idRes = await fetchWithTimeout(`/api/books/${bookId}/identify`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}` }
-          });
+          }, 300000);
           if (!idRes.ok) {
             const errorData = await idRes.json().catch(() => ({}));
             throw new Error(errorData.error || "Error identificando el libro");
           }
           
-          // Actualizar UI tras identificar
+          const idInfo = await idRes.json();
+          // Actualizar localmente para feedback inmediato
+          setSelectedBook(prev => prev && prev.id === bookId ? { ...prev, titulo: idInfo.titulo, autor: idInfo.autor, phase: 0 } : prev);
           await fetchBooks(selectedLibrary.id);
-          const booksAfterId = await (await fetch(`/api/libraries/${selectedLibrary.id}/books`, {
-            headers: { Authorization: `Bearer ${token}` }
-          })).json();
-          const bookAfterId = booksAfterId.find((b: any) => b.id === bookId);
-          if (bookAfterId) setSelectedBook(bookAfterId);
 
           if (stopRef.current) return;
 
@@ -312,21 +309,16 @@ export default function Dashboard() {
           const metaRes = await fetchWithTimeout(`/api/books/${bookId}/metadata`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}` }
-          });
+          }, 300000);
           if (!metaRes.ok) {
             const errorData = await metaRes.json().catch(() => ({}));
             throw new Error(errorData.error || "Error buscando metadatos");
           }
 
-          if (stopRef.current) return;
-
-          // Actualizar UI tras metadatos
+          const metaInfo = await metaRes.json();
+          // Actualizar localmente
+          setSelectedBook(prev => prev && prev.id === bookId ? { ...prev, ...metaInfo, phase: 1 } : prev);
           await fetchBooks(selectedLibrary.id);
-          const booksAfterMeta = await (await fetch(`/api/libraries/${selectedLibrary.id}/books`, {
-            headers: { Authorization: `Bearer ${token}` }
-          })).json();
-          const bookAfterMeta = booksAfterMeta.find((b: any) => b.id === bookId);
-          if (bookAfterMeta) setSelectedBook(bookAfterMeta);
 
           if (stopRef.current) return;
 
@@ -335,19 +327,16 @@ export default function Dashboard() {
           const detectRes = await fetchWithTimeout(`/api/books/${bookId}/detect-chapters`, {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}` }
-          }, 300000); // 5 min timeout
+          }, 300000);
           if (!detectRes.ok) {
             const errorData = await detectRes.json().catch(() => ({}));
             throw new Error(errorData.error || "Error detectando capítulos");
           }
           
+          const detectInfo = await detectRes.json();
+          // Actualizar localmente
+          setSelectedBook(prev => prev && prev.id === bookId ? { ...prev, resumen_capitulos: JSON.stringify(detectInfo.structure), phase: 2 } : prev);
           await fetchBooks(selectedLibrary.id);
-          const finalBooks = await (await fetch(`/api/libraries/${selectedLibrary.id}/books`, {
-            headers: { Authorization: `Bearer ${token}` }
-          })).json();
-          const finalBook = finalBooks.find((b: any) => b.id === bookId);
-          if (finalBook) setSelectedBook(finalBook);
-          
           await fetchChapters(bookId);
           
           setSuccessMsg('Libro identificado y capítulos detectados. Ahora puedes proceder con el resumen.');

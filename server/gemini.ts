@@ -143,8 +143,11 @@ export const analyzeBookBackend = async (
 
 export const identifyBook = async (content: string) => {
   const ai = getAI();
-  const prompt = `Identifica TÍTULO y AUTOR del siguiente libro.
-  CONTENIDO: ${content.substring(0, 50000)}`;
+  const prompt = `Analiza el siguiente fragmento de un libro y extrae el TÍTULO y el AUTOR.
+  Si no puedes encontrarlos con certeza, intenta deducirlos por el contexto o pon "Desconocido".
+  
+  CONTENIDO (Primeros 100k caracteres):
+  ${content.substring(0, 100000)}`;
   
   return runAnalysis(ai, "gemini-3-flash-preview", prompt, "IDENTIFICACIÓN", {
     titulo: { type: Type.STRING },
@@ -206,36 +209,46 @@ export const detectChapters = async (content: string) => {
   const prompt = `Analiza el texto proporcionado y extrae la estructura completa de capítulos del libro.
   
   INSTRUCCIONES:
-  1. Busca una tabla de contenidos o índice al principio.
-  2. Si no hay índice, identifica los encabezados de capítulos a lo largo del texto.
+  1. Busca una tabla de contenidos o índice al principio del texto.
+  2. Si no hay índice, identifica los encabezados de capítulos a lo largo del texto (ej: "Capítulo 1", "1. El Comienzo", etc.).
   3. Identifica si el libro está dividido en PARTES, SECCIONES o LIBROS (ej: "Parte I: El Despertar", "Libro Segundo", etc.).
-  4. Si hay divisiones mayores (partes), agrupa los capítulos dentro de ellas.
+  4. Si hay divisiones mayores (partes), agrupa los capítulos que pertenecen a cada una.
   5. Si NO hay divisiones mayores, usa una cadena vacía "" para el campo "part".
-  6. Si no logras detectar capítulos específicos, pero el texto es claramente un libro, crea un único elemento con part: "" y un capítulo llamado "Contenido Principal".
+  6. Si el libro no tiene capítulos numerados o titulados, crea un único elemento con part: "" y un capítulo llamado "Contenido Principal".
   
-  IMPORTANTE: Devuelve una lista de objetos con "part" y "chapters" (lista de strings).
+  IMPORTANTE: Devuelve una lista de objetos, cada uno con un nombre de "part" y una lista de "chapters" (strings con los títulos).
   
   CONTENIDO:
   ${targetedContent}`;
   
-  const result = await runAnalysis(ai, "gemini-3.1-pro-preview", prompt, "DETECCIÓN ESTRUCTURA", {
-    estructura: { 
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          part: { type: Type.STRING, description: "Nombre de la parte/sección o cadena vacía" },
-          chapters: { 
-            type: Type.ARRAY, 
-            items: { type: Type.STRING },
-            description: "Lista de títulos de capítulos encontrados"
-          }
-        },
-        required: ["part", "chapters"]
+  try {
+    const result = await runAnalysis(ai, "gemini-3-flash-preview", prompt, "DETECCIÓN ESTRUCTURA", {
+      estructura: { 
+        type: Type.ARRAY,
+        items: {
+          type: Type.OBJECT,
+          properties: {
+            part: { type: Type.STRING, description: "Nombre de la parte/sección o cadena vacía" },
+            chapters: { 
+              type: Type.ARRAY, 
+              items: { type: Type.STRING },
+              description: "Lista de títulos de capítulos encontrados"
+            }
+          },
+          required: ["part", "chapters"]
+        }
       }
+    });
+    
+    if (!result.estructura || result.estructura.length === 0) {
+      return [{ part: "", chapters: ["Contenido Principal"] }];
     }
-  });
-  return result.estructura;
+    
+    return result.estructura;
+  } catch (err) {
+    console.error("Error en detectChapters:", err);
+    return [{ part: "", chapters: ["Contenido Principal"] }];
+  }
 };
 
 export const summarizeSpecificChapter = async (content: string, chapterTitle: string) => {
@@ -409,7 +422,10 @@ ${promptText}
 
       const resultText = response.text;
       if (!resultText) throw new Error(`No response from Gemini in ${phaseName}`);
-      return JSON.parse(resultText);
+      
+      // Limpiar posibles bloques de código markdown
+      const cleanJson = resultText.replace(/```json\n?|```/g, "").trim();
+      return JSON.parse(cleanJson);
     } catch (error: any) {
       lastError = error;
       // 503: Service Unavailable (High demand)
