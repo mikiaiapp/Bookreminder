@@ -142,6 +142,17 @@ router.get("/analysis-status/:jobId", authMiddleware, (req, res) => {
   res.json(response);
 });
 
+router.patch("/books/:id/status", authMiddleware, (req: any, res) => {
+  const { status } = req.body;
+  const bookId = req.params.id;
+  try {
+    db.prepare("UPDATE books SET status = ? WHERE id = ?").run(status, bookId);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get("/books/:id/job", authMiddleware, (req: any, res) => {
   const bookId = req.params.id;
   const job = db.prepare("SELECT id, content FROM analysis_jobs WHERE book_id = ?").get(bookId) as any;
@@ -471,22 +482,30 @@ router.post("/books/:id/detect-chapters", authMiddleware, async (req: any, res) 
   const { content } = req.body;
   const bookId = req.params.id;
   try {
-    const chapterTitles = await detectChapters(content);
+    const structure = await detectChapters(content);
+    
+    if (!structure || structure.length === 0 || (structure.length === 1 && structure[0].chapters.length === 0)) {
+      throw new Error("No se pudieron detectar capítulos en el libro. Asegúrate de que el archivo tenga una estructura clara o intenta subirlo de nuevo.");
+    }
     
     // Limpiar capítulos previos si existen
     db.prepare("DELETE FROM chapters WHERE book_id = ?").run(bookId);
     
-    // Insertar nuevos capítulos
-    const insert = db.prepare("INSERT INTO chapters (book_id, title, order_index) VALUES (?, ?, ?)");
-    chapterTitles.forEach((title: string, index: number) => {
-      insert.run(bookId, title, index);
+    // Insertar nuevos capítulos con sus partes
+    const insert = db.prepare("INSERT INTO chapters (book_id, part_name, title, order_index) VALUES (?, ?, ?, ?)");
+    let globalIndex = 0;
+    structure.forEach((item: any) => {
+      item.chapters.forEach((title: string) => {
+        insert.run(bookId, item.part || null, title, globalIndex++);
+      });
     });
 
     db.prepare("UPDATE books SET resumen_capitulos = ?, phase = 2 WHERE id = ?")
-      .run(JSON.stringify(chapterTitles), bookId);
+      .run(JSON.stringify(structure), bookId);
     
-    res.json({ chapters: chapterTitles });
+    res.json({ structure });
   } catch (err: any) {
+    console.error("[API /detect-chapters] Error:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -498,7 +517,7 @@ router.get("/books/:id/chapters", authMiddleware, (req: any, res) => {
 });
 
 router.post("/books/:id/chapters/:chapterId/summarize", authMiddleware, async (req: any, res) => {
-  const { bookId, chapterId } = req.params;
+  const { id: bookId, chapterId } = req.params;
   const { content } = req.body;
   
   try {

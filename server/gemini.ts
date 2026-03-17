@@ -196,22 +196,46 @@ export const fetchBookMetadata = async (titulo: string, autor: string) => {
 
 export const detectChapters = async (content: string) => {
   const ai = getAI();
-  const prompt = `Extrae la lista de TODOS los capítulos del libro.
-  IMPORTANTE: Si el libro tiene Partes (ej: Parte 1, Parte 2), NO devuelvas solo las Partes. 
-  Debes devolver los CAPÍTULOS que hay DENTRO de cada Parte.
-  Ejemplo de salida esperada: ["Parte 1 - Capítulo 1", "Parte 1 - Capítulo 2", "Parte 2 - Capítulo 1", ...]
-  Si los capítulos no tienen nombre, usa "Capítulo 1", "Capítulo 2", etc.
+  const head = content.substring(0, 400000);
+  const tail = content.substring(Math.max(0, content.length - 100000));
+  const targetedContent = `--- INICIO DEL LIBRO ---\n${head}\n\n... [CONTENIDO OMITIDO] ...\n\n--- FINAL DEL LIBRO ---\n${tail}`;
+
+  const prompt = `Extrae la estructura de capítulos del libro.
+  IMPORTANTE: Identifica si el libro está dividido en PARTES (ej: Parte I, Libro Primero, etc.).
+  Si hay partes, agrupa los capítulos dentro de ellas.
+  Si no hay partes, usa una cadena vacía "" para el nombre de la parte.
   
-  CONTENIDO:
-  ${content.substring(0, 400000)}`;
+  Ejemplo de salida esperada:
+  [
+    { "part": "Parte 1: El Comienzo", "chapters": ["Capítulo 1", "Capítulo 2"] },
+    { "part": "Parte 2: El Nudo", "chapters": ["Capítulo 3", "Capítulo 4"] }
+  ]
+  O si no hay partes:
+  [
+    { "part": "", "chapters": ["Capítulo 1", "Capítulo 2", ...] }
+  ]
+
+  CONTENIDO (Fragmentos del inicio y final):
+  ${targetedContent}`;
   
-  const result = await runAnalysis(ai, "gemini-3-flash-preview", prompt, "DETECCIÓN CAPÍTULOS", {
-    capitulos: { 
+  const result = await runAnalysis(ai, "gemini-3-flash-preview", prompt, "DETECCIÓN ESTRUCTURA", {
+    estructura: { 
       type: Type.ARRAY,
-      items: { type: Type.STRING }
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          part: { type: Type.STRING, description: "Nombre de la parte o cadena vacía" },
+          chapters: { 
+            type: Type.ARRAY, 
+            items: { type: Type.STRING },
+            description: "Lista de títulos de capítulos"
+          }
+        },
+        required: ["part", "chapters"]
+      }
     }
   });
-  return result.capitulos;
+  return result.estructura;
 };
 
 export const summarizeSpecificChapter = async (content: string, chapterTitle: string) => {
@@ -222,7 +246,7 @@ export const summarizeSpecificChapter = async (content: string, chapterTitle: st
   2. NOTAS DE PERSONAJES: Quién aparece, qué hace y si hay evolución.
   
   CONTENIDO DEL LIBRO:
-  ${content.substring(0, 2000000)}`; // 2M caracteres para cubrir libros más extensos
+  ${content.substring(0, 4000000)}`; // 4M caracteres para cubrir libros más extensos
   
   return runAnalysis(ai, "gemini-3-flash-preview", prompt, `RESUMEN ${chapterTitle}`, {
     resumen: { type: Type.STRING },
