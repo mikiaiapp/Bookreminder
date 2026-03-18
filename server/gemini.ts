@@ -140,23 +140,14 @@ export const analyzeBookBackend = async (
   };
 };
 
-export const identifyBook = async (content: string) => {
+export const identifyAndFetchMetadata = async (content: string) => {
   const safeContent = content || "";
   const ai = getAI();
-  const prompt = `Identifica TÍTULO y AUTOR del siguiente libro.
-  CONTENIDO: ${safeContent.substring(0, 50000)}`;
+  const prompt = `Identifica TÍTULO y AUTOR del libro basado en el contenido. 
+  Además, busca información detallada del libro: ISBN (solo el número), Sinopsis (resumen de la trama), Biografía del autor, Bibliografía destacada y Datos de publicación (editorial, año).
+  Usa tus herramientas de búsqueda si es necesario para obtener datos reales.
   
-  return runAnalysis(ai, "gemini-3-flash-preview", prompt, "IDENTIFICACIÓN", {
-    titulo: { type: Type.STRING },
-    autor: { type: Type.STRING }
-  });
-};
-
-export const fetchBookMetadata = async (titulo: string, autor: string) => {
-  const ai = getAI();
-  const prompt = `Busca información detallada del libro "${titulo}" de ${autor}.
-  Necesito: ISBN (solo el número), Sinopsis (resumen de la trama), Biografía del autor, Bibliografía destacada y Datos de publicación (editorial, año).
-  Usa herramientas de búsqueda para obtener datos reales.`;
+  CONTENIDO: ${safeContent.substring(0, 50000)}`;
   
   try {
     const response = await ai.models.generateContent({
@@ -168,25 +159,30 @@ export const fetchBookMetadata = async (titulo: string, autor: string) => {
         responseSchema: {
           type: Type.OBJECT,
           properties: {
+            titulo: { type: Type.STRING },
+            autor: { type: Type.STRING },
             isbn: { type: Type.STRING },
             sinopsis: { type: Type.STRING },
             biografia_autor: { type: Type.STRING },
             bibliografia_autor: { type: Type.STRING },
             datos_publicacion: { type: Type.STRING },
           },
-          required: ["isbn", "sinopsis", "biografia_autor", "bibliografia_autor", "datos_publicacion"]
+          required: ["titulo", "autor", "isbn", "sinopsis", "biografia_autor", "bibliografia_autor", "datos_publicacion"]
         }
       }
     });
     
     const text = response.text;
-    if (!text) throw new Error("No se recibió respuesta de metadatos");
+    if (!text) throw new Error("No se recibió respuesta de identificación y metadatos");
     return JSON.parse(text);
   } catch (err: any) {
-    console.error("[Gemini] Error fetching metadata:", err);
-    // Fallback to a simpler prompt without search if search fails
-    const fallbackPrompt = `Proporciona información general del libro "${titulo}" de ${autor} en formato JSON.`;
-    return runAnalysis(ai, "gemini-3-flash-preview", fallbackPrompt, "METADATOS FALLBACK", {
+    console.error("[Gemini] Error in identifyAndFetchMetadata:", err);
+    // Fallback without search
+    const fallbackPrompt = `Identifica el libro y proporciona su ficha técnica en JSON.
+    CONTENIDO: ${safeContent.substring(0, 50000)}`;
+    return runAnalysis(ai, "gemini-3-flash-preview", fallbackPrompt, "IDENTIFICACIÓN+METADATOS FALLBACK", {
+      titulo: { type: Type.STRING },
+      autor: { type: Type.STRING },
       isbn: { type: Type.STRING },
       sinopsis: { type: Type.STRING },
       biografia_autor: { type: Type.STRING },
@@ -194,6 +190,34 @@ export const fetchBookMetadata = async (titulo: string, autor: string) => {
       datos_publicacion: { type: Type.STRING },
     });
   }
+};
+
+export const finalizeBookPhased = async (chaptersText: string) => {
+  const safeChapters = chaptersText || "";
+  const ai = getAI();
+  const prompt = `Genera un ANÁLISIS FINAL COMPLETO basado en los resúmenes de capítulos.
+  
+  TAREAS:
+  1. Resumen general: Un resumen riguroso y fluido de la obra completa.
+  2. Análisis de personajes: Perfil detallado de cada personaje relevante y su evolución.
+  3. Mapa mental: Código MERMAID (graph TD) que conecte temas, personajes y trama.
+  4. Guiones de Podcast: 
+     - Guion "Personajes": Diálogo entre dos personajes comentando la historia.
+     - Guion "Libro": Monólogo explicando la obra.
+  5. Información extra: Sentimiento clave y 3 citas memorables.
+  
+  CAPÍTULOS: ${safeChapters.substring(0, 50000)}`;
+  
+  return runAnalysis(ai, "gemini-3-flash-preview", prompt, "SÍNTESIS FINAL OPTIMIZADA", {
+    resumen_general: { type: Type.STRING },
+    analisis_personajes: { type: Type.STRING },
+    evolucion_protagonista: { type: Type.STRING },
+    mermaid_code: { type: Type.STRING },
+    guion_podcast_personajes: { type: Type.STRING },
+    guion_podcast_libro: { type: Type.STRING },
+    sentimiento_clave: { type: Type.STRING },
+    citas_clave: { type: Type.STRING },
+  });
 };
 
 export const detectChapters = async (content: string) => {

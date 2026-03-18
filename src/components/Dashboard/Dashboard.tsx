@@ -285,8 +285,8 @@ export default function Dashboard() {
 
           if (stopRef.current) return;
 
-          // 2. Fase 0: Identificar
-          setAnalysisMessage("Identificando título y autor...");
+          // 2. Fase 0 y 1: Identificar y Metadatos (Combinados)
+          setAnalysisMessage("Identificando libro y buscando metadatos...");
           const idRes = await fetch(`/api/books/${bookId}/identify`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -297,7 +297,7 @@ export default function Dashboard() {
             throw new Error(data.error || "Error identificando el libro");
           }
           
-          // Actualizar UI tras identificar
+          // Actualizar UI tras identificar y metadatos
           await fetchBooks(selectedLibrary.id);
           const booksAfterIdRes = await fetch(`/api/libraries/${selectedLibrary.id}/books`, {
             headers: { Authorization: `Bearer ${token}` }
@@ -308,27 +308,7 @@ export default function Dashboard() {
 
           if (stopRef.current) return;
 
-          // 3. Fase 1: Metadatos (Google Search)
-          setAnalysisMessage("Buscando ficha técnica en la web...");
-          const metaRes = await fetch(`/api/books/${bookId}/metadata`, {
-            method: 'POST',
-            headers: { Authorization: `Bearer ${token}` }
-          });
-          if (!metaRes.ok) throw new Error("Error buscando metadatos");
-
-          if (stopRef.current) return;
-
-          // Actualizar UI tras metadatos
-          await fetchBooks(selectedLibrary.id);
-          const booksAfterMeta = await (await fetch(`/api/libraries/${selectedLibrary.id}/books`, {
-            headers: { Authorization: `Bearer ${token}` }
-          })).json();
-          const bookAfterMeta = booksAfterMeta.find((b: any) => b.id === bookId);
-          if (bookAfterMeta) setSelectedBook(bookAfterMeta);
-
-          if (stopRef.current) return;
-
-          // 4. Fase 2: Detectar capítulos
+          // 3. Fase 2: Detectar capítulos
           setAnalysisMessage("Detectando capítulos...");
           const detectRes = await fetch(`/api/books/${bookId}/detect-chapters`, {
             method: 'POST',
@@ -371,11 +351,11 @@ export default function Dashboard() {
       "Identificando...",
       "Buscando metadatos...",
       "Detectando capítulos...",
-      "Analizando personajes...",
-      "Generando resumen general...",
-      "Creando mapa mental...",
-      "Generando guiones de podcast...",
-      "Capturando esencia emocional..."
+      "Generando Análisis Final (Personajes, Resumen, Mapa, Podcast)...",
+      "Generando Análisis Final...",
+      "Generando Análisis Final...",
+      "Generando Análisis Final...",
+      "Generando Análisis Final..."
     ];
 
     setAnalysisMessage(phaseMessages[phase] || "Procesando...");
@@ -389,7 +369,7 @@ export default function Dashboard() {
       const { content } = await safeFetchJson(jobRes);
 
       const endpoints = [
-        'identify', 'metadata', 'detect-chapters', 'characters', 'summary', 'map', 'podcast', 'extra'
+        'identify', 'metadata', 'detect-chapters', 'finalize', 'finalize', 'finalize', 'finalize', 'finalize'
       ];
 
       const res = await fetch(`/api/books/${bookId}/${endpoints[phase]}`, {
